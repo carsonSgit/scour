@@ -1,4 +1,4 @@
-import algorithm, json, os, osproc, re, sequtils, strutils, tables
+import algorithm, json, os, osproc, sequtils, strutils, tables
 
 import ../issues, ../scan_plan
 
@@ -151,23 +151,64 @@ proc loadEnvNames(root: string; files: openArray[string]): Table[string, bool] =
       if equals > 0:
         result[trimmed[0 ..< equals].strip()] = true
 
-proc addEnvMatches(
+proc isEnvStart(ch: char): bool =
+  ch == '_' or (ch >= 'A' and ch <= 'Z')
+
+proc isEnvPart(ch: char): bool =
+  ch.isEnvStart() or (ch >= '0' and ch <= '9')
+
+proc addEnvIssue(
     result: var seq[Issue];
-    file, text, pattern: string;
+    file, text, name: string;
+    index: int;
+    documented: Table[string, bool]
+) =
+  if name.len == 0 or name in IgnoredEnvNames or documented.hasKey(name):
+    return
+  let location = text.lineColumn(index)
+  result.add(envError(file, location.line, location.column, name))
+
+proc scanPropertyEnv(
+    result: var seq[Issue];
+    file, text, prefix: string;
     documented: Table[string, bool]
 ) =
   var searchFrom = 0
-  for match in text.findAll(re(pattern)):
-    let name = match.findAll(re("[A-Z_][A-Z0-9_]*"))[^1]
-    let index = text.find(match, searchFrom)
-    if index >= 0:
-      searchFrom = index + match.len
-    else:
+  while true:
+    let index = text.find(prefix, searchFrom)
+    if index < 0:
+      break
+    let nameStart = index + prefix.len
+    var nameEnd = nameStart
+    if nameStart < text.len and text[nameStart].isEnvStart():
+      while nameEnd < text.len and text[nameEnd].isEnvPart():
+        inc nameEnd
+      result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index, documented)
+    searchFrom = max(index + 1, nameEnd)
+
+proc scanQuotedEnv(
+    result: var seq[Issue];
+    file, text, prefix: string;
+    documented: Table[string, bool]
+) =
+  var searchFrom = 0
+  while true:
+    let index = text.find(prefix, searchFrom)
+    if index < 0:
+      break
+    let quoteIndex = index + prefix.len
+    if quoteIndex >= text.len or text[quoteIndex] notin ['"', '\'']:
+      searchFrom = index + 1
       continue
-    if name in IgnoredEnvNames or documented.hasKey(name):
-      continue
-    let location = text.lineColumn(index)
-    result.add(envError(file, location.line, location.column, name))
+    let quote = text[quoteIndex]
+    let nameStart = quoteIndex + 1
+    var nameEnd = nameStart
+    if nameStart < text.len and text[nameStart].isEnvStart():
+      while nameEnd < text.len and text[nameEnd].isEnvPart():
+        inc nameEnd
+      if nameEnd < text.len and text[nameEnd] == quote:
+        result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index, documented)
+    searchFrom = max(index + 1, nameEnd)
 
 proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[string]) =
   let documented = loadEnvNames(plan.repo.root, files)
@@ -175,14 +216,14 @@ proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[strin
     let text = safeRead(plan.repo.root, candidate)
     if text.len == 0:
       continue
-    result.addEnvMatches(candidate, text, """process\.env\.[A-Z_][A-Z0-9_]*""", documented)
-    result.addEnvMatches(candidate, text, """import\.meta\.env\.[A-Z_][A-Z0-9_]*""", documented)
-    result.addEnvMatches(candidate, text, """Deno\.env\.get\(["'][A-Z_][A-Z0-9_]*["']\)""", documented)
-    result.addEnvMatches(candidate, text, """os\.Getenv\(["'][A-Z_][A-Z0-9_]*["']\)""", documented)
-    result.addEnvMatches(candidate, text, """std::env::var\(["'][A-Z_][A-Z0-9_]*["']\)""", documented)
-    result.addEnvMatches(candidate, text, """System\.getenv\(["'][A-Z_][A-Z0-9_]*["']\)""", documented)
-    result.addEnvMatches(candidate, text, """ENV\[['"][A-Z_][A-Z0-9_]*['"]\]""", documented)
-    result.addEnvMatches(candidate, text, """getenv\(["'][A-Z_][A-Z0-9_]*["']\)""", documented)
+    result.scanPropertyEnv(candidate, text, "process.env.", documented)
+    result.scanPropertyEnv(candidate, text, "import.meta.env.", documented)
+    result.scanQuotedEnv(candidate, text, "Deno.env.get(", documented)
+    result.scanQuotedEnv(candidate, text, "os.Getenv(", documented)
+    result.scanQuotedEnv(candidate, text, "std::env::var(", documented)
+    result.scanQuotedEnv(candidate, text, "System.getenv(", documented)
+    result.scanQuotedEnv(candidate, text, "ENV[", documented)
+    result.scanQuotedEnv(candidate, text, "getenv(", documented)
 
 proc addPackageScripts(inventory: var CommandInventory; root, file: string) =
   try:
