@@ -1,10 +1,12 @@
-import os, osproc, unittest
+import os, osproc, strutils, unittest
 
 import ../src/scourpkg/cli
 import ../src/scourpkg/errors
 import ../src/scourpkg/files
+import ../src/scourpkg/issues
 import ../src/scourpkg/repo
 import ../src/scourpkg/scan_plan
+import ../src/scourpkg/text_output
 
 proc expectFatal(body: proc()) =
   var raised = false
@@ -45,14 +47,93 @@ suite "CLI parser":
   test "parses supported flags and paths":
     let options = parseCliArgs(@["--config", "scour.toml", "src"])
     check options.configPath == "scour.toml"
+    check options.colorMode == colorAuto
     check options.explicitPaths == @["src"]
+
+  test "parses color modes":
+    check parseCliArgs(@["--color", "auto"]).colorMode == colorAuto
+    check parseCliArgs(@["--color", "always"]).colorMode == colorAlways
+    check parseCliArgs(@["--color", "never"]).colorMode == colorNever
 
   test "rejects invalid flags":
     expectFatal(proc() = discard parseCliArgs(@["--wat"]))
+    expectFatal(proc() = discard parseCliArgs(@["--color", "sometimes"]))
+    expectFatal(proc() = discard parseCliArgs(@["--color"]))
 
   test "rejects conflicting scan modes":
     expectFatal(proc() = discard parseCliArgs(@["--staged", "--all"]))
     expectFatal(proc() = discard parseCliArgs(@["--since", "main", "src"]))
+
+suite "issue summaries":
+  test "summarizes empty issue lists":
+    let summary = summarizeIssues(@[])
+    check summary.total == 0
+    check summary.bySeverity.errors == 0
+    check summary.bySeverity.warnings == 0
+    check summary.bySeverity.infos == 0
+    check summary.affectedFiles == 0
+
+  test "counts mixed severities":
+    let issues = @[
+      Issue(ruleId: "rule/a", severity: severityError, file: "a.nim"),
+      Issue(ruleId: "rule/b", severity: severityWarning, file: "b.nim"),
+      Issue(ruleId: "rule/c", severity: severityInfo, file: "c.nim"),
+      Issue(ruleId: "rule/d", severity: severityWarning, file: "d.nim")
+    ]
+    let summary = summarizeIssues(issues)
+    check summary.total == 4
+    check summary.bySeverity.errors == 1
+    check summary.bySeverity.warnings == 2
+    check summary.bySeverity.infos == 1
+
+  test "counts duplicate files once":
+    let issues = @[
+      Issue(ruleId: "rule/a", severity: severityError, file: "a.nim"),
+      Issue(ruleId: "rule/b", severity: severityWarning, file: "a.nim"),
+      Issue(ruleId: "rule/c", severity: severityInfo, file: "b.nim")
+    ]
+    check summarizeIssues(issues).affectedFiles == 2
+
+suite "text output":
+  test "renders clean scan pass message":
+    check renderIssues(@[], colorNever) == "Scour passed. No failing issues found.\n"
+
+  test "renders issue details and summary":
+    let output = renderIssues(@[
+      Issue(
+        ruleId: "config/missing",
+        severity: severityError,
+        category: "config",
+        triage: triageBlocker,
+        file: "src/scour.nim",
+        line: 10,
+        column: 4,
+        message: "Missing required config.",
+        suggestion: "Add scour.toml."
+      ),
+      Issue(
+        ruleId: "docs/stale",
+        severity: severityWarning,
+        category: "docs",
+        triage: triageReview,
+        file: "README.md",
+        message: "README is stale."
+      )
+    ], colorNever)
+    check "error config/missing src/scour.nim:10:4 - Missing required config." in output
+    check "Suggestion: Add scour.toml." in output
+    check "warning docs/stale README.md - README is stale." in output
+    check "Summary: 2 issue(s), 1 error(s), 1 warning(s), 0 info(s), 2 file(s)" in output
+
+  test "formats locations with optional line and column":
+    check location(Issue(file: "a.nim")) == "a.nim"
+    check location(Issue(file: "a.nim", line: 3)) == "a.nim:3"
+    check location(Issue(file: "a.nim", line: 3, column: 9)) == "a.nim:3:9"
+
+  test "controls ANSI color output":
+    let issues = @[Issue(ruleId: "rule/a", severity: severityError, file: "a.nim", message: "Bad.")]
+    check "\e[" notin renderIssues(issues, colorNever)
+    check "\e[" in renderIssues(issues, colorAlways)
 
 suite "repo and config discovery":
   test "uses current directory outside Git":
@@ -136,12 +217,15 @@ suite "command behavior":
     check run(binary.quoteShell & " --help").exitCode == 0
     check run(binary.quoteShell & " --version").exitCode == 0
     check run(binary.quoteShell & " --not-a-flag").exitCode == 2
+    check run(binary.quoteShell & " --color sometimes").exitCode == 2
 
     let root = getTempDir() / "scour-command"
     cleanDir(root)
     initGitRepo(root)
     writeFile(root / "new.txt", "new\n")
-    check run(binary.quoteShell & " --all", root).exitCode == 0
+    let allResult = run(binary.quoteShell & " --all", root)
+    check allResult.exitCode == 0
+    check allResult.output == "Scour passed. No failing issues found.\n"
     check run(binary.quoteShell & " new.txt", root).exitCode == 0
     check run("git add new.txt", root).exitCode == 0
     check run(binary.quoteShell & " --staged", root).exitCode == 0
