@@ -54,9 +54,17 @@ CLI args
        duplicate-lockfiles
        dockerignore-missing
        generated-files
+  -> run cross-reference rules
+       candidate files for changed source and package manifests
+       repository inventory for tracked docs, workflows, env examples, package metadata, and task files
+       env-drift compares literal env usages with .env example/default files
+       readme-command-drift validates README.md and docs/**/*.md commands against known scripts and targets
+       ci-command-drift validates workflow run commands against known scripts and targets
+       package-lock-drift checks changed Node package.json files against existing same-directory lockfiles
   -> combine issues
        branch hygiene issues
        repository hygiene issues
+       cross-reference issues
   -> render text output
        pass message when no issues
        issue rows with severity, rule id, location, and message
