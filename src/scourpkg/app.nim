@@ -1,5 +1,6 @@
 import cli, config, errors, files, help, repo, scan_plan, text_output
 import rules/branch_hygiene
+import rules/cross_reference
 import rules/repo_hygiene
 
 proc runScour*(): int =
@@ -26,7 +27,7 @@ proc runScour*(): int =
       candidates: collected.files
     )
 
-    let foundIssues = scanBranchHygiene(plan, runtimeConfig) & scanRepoHygiene(plan)
+    let foundIssues = scanBranchHygiene(plan, runtimeConfig) & scanRepoHygiene(plan) & scanCrossReference(plan)
     stdout.write(renderIssues(foundIssues, options))
     0
   except FatalUserError as error:
