@@ -488,3 +488,30 @@ suite "command behavior":
     let disabledResult = run(binary.quoteShell & " --config scour.toml all.ts", root)
     check disabledResult.exitCode == 0
     check disabledResult.output == "Scour passed. No failing issues found.\n"
+
+  test "scan commands render repository hygiene issue ids":
+    let binary = getTempDir() / "scour-test-bin-repo-rules"
+    let cache = getTempDir() / "scour-test-nimcache-repo-rules"
+    if fileExists(binary):
+      removeFile(binary)
+    cleanDir(cache)
+    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" & binary.quoteShell & " src/scour.nim")
+    check build.exitCode == 0
+
+    let root = getTempDir() / "scour-command-repo-rules"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "app")
+    createDir(root / "dist")
+    writeFile(root / "app" / "package.json", "{}\n")
+    writeFile(root / "app" / "package-lock.json", "{}\n")
+    writeFile(root / "app" / "pnpm-lock.yaml", "\n")
+    writeFile(root / "Dockerfile", "FROM scratch\n")
+    writeFile(root / "dist" / "index.js", "build output\n")
+    check run("git add app/package.json app/package-lock.json app/pnpm-lock.yaml Dockerfile dist/index.js", root).exitCode == 0
+
+    let result = run(binary.quoteShell & " --all", root)
+    check result.exitCode == 0
+    check "warning duplicate-lockfiles app/package.json - Multiple package manager lockfiles found in the same package root." in result.output
+    check "warning dockerignore-missing Dockerfile - Dockerfile has no same-directory .dockerignore." in result.output
+    check "warning generated-files dist/index.js - Generated output is tracked in the repository." in result.output
