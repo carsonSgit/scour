@@ -321,6 +321,34 @@ suite "repository hygiene rules":
     ]))
     check issues.hasIssue("duplicate-lockfiles") == false
 
+  test "reports Dockerfile without same-directory dockerignore":
+    let root = getTempDir() / "scour-dockerignore-missing"
+    cleanDir(root)
+    createDir(root / "services" / "api")
+    writeFile(root / "services" / "api" / "Dockerfile", "FROM scratch\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @["services/api/Dockerfile"]))
+    check issues.hasIssue("dockerignore-missing")
+
+    let issue = issues.firstIssue("dockerignore-missing")
+    check issue.file == "services/api/Dockerfile"
+    check issue.category == "docker-drift"
+    check issue.triage == triageFixNow
+    check issue.severity == severityWarning
+
+  test "allows Dockerfile with same-directory dockerignore":
+    let root = getTempDir() / "scour-dockerignore-present"
+    cleanDir(root)
+    createDir(root / "services" / "api")
+    writeFile(root / "services" / "api" / "Dockerfile.prod", "FROM scratch\n")
+    writeFile(root / "services" / "api" / ".dockerignore", "node_modules\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @[
+      "services/api/Dockerfile.prod",
+      "services/api/.dockerignore"
+    ]))
+    check issues.hasIssue("dockerignore-missing") == false
+
 suite "scan planning and files":
   test "selects default modes":
     check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true)) == scanChanged

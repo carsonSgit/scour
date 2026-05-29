@@ -76,6 +76,29 @@ proc scanDuplicateLockfiles(result: var seq[Issue]; files: openArray[string]) =
         "Multiple package manager lockfiles found in the same package root."
       ))
 
+proc isDockerfile(file: string): bool =
+  let name = file.normalizeRepoPath().splitFile.name & file.normalizeRepoPath().splitFile.ext
+  name == "Dockerfile" or name.startsWith("Dockerfile.")
+
+proc scanDockerignoreMissing(result: var seq[Issue]; files: openArray[string]) =
+  var fileSet = initTable[string, bool]()
+  for file in files:
+    fileSet[file] = true
+
+  for file in files:
+    if not file.isDockerfile():
+      continue
+
+    let expected = joinRepoPath(file.parentDir(), ".dockerignore")
+    if not fileSet.hasKey(expected):
+      result.add(warning(
+        "dockerignore-missing",
+        "docker-drift",
+        file,
+        "Dockerfile has no same-directory .dockerignore."
+      ))
+
 proc scanRepoHygiene*(plan: ScanPlan): seq[Issue] =
   let files = repositoryFiles(plan)
   result.scanDuplicateLockfiles(files)
+  result.scanDockerignoreMissing(files)
