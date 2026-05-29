@@ -7,6 +7,7 @@ import ../src/scourpkg/files
 import ../src/scourpkg/issues
 import ../src/scourpkg/repo
 import ../src/scourpkg/rules/branch_hygiene
+import ../src/scourpkg/rules/cross_reference
 import ../src/scourpkg/rules/repo_hygiene
 import ../src/scourpkg/scan_plan
 import ../src/scourpkg/text_output
@@ -379,6 +380,149 @@ suite "repository hygiene rules":
     let issues = scanRepoHygiene(plan)
     check issues.hasIssue("generated-files") == false
 
+suite "cross-reference rules":
+  test "reports env usage missing from env examples":
+    let root = getTempDir() / "scour-env-drift"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", "const token = process.env.API_TOKEN;\n")
+
+    let issues = scanCrossReference(testPlan(root, @["app.ts"]))
+    check issues.hasIssue("env-drift")
+    let issue = issues.firstIssue("env-drift")
+    check issue.file == "app.ts"
+    check issue.line == 1
+    check issue.column == 15
+    check issue.category == "env-drift"
+    check issue.triage == triageBlocker
+    check issue.severity == severityError
+
+  test "does not report ignored or documented env vars":
+    let root = getTempDir() / "scour-env-drift-negatives"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / ".env.example", "API_TOKEN=\n")
+    writeFile(root / "app.ts", "const mode = process.env.NODE_ENV;\nconst token = process.env.API_TOKEN;\n")
+
+    let issues = scanCrossReference(testPlan(root, @["app.ts", ".env.example"]))
+    check issues.hasIssue("env-drift") == false
+
+  test "reports README command with missing script target":
+    let root = getTempDir() / "scour-readme-command-drift"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "README.md", "```sh\nnpm run missing\n```\n")
+    writeFile(root / "package.json", """{"scripts":{"test":"nimble test"}}""" & "\n")
+
+    let issues = scanCrossReference(testPlan(root, @["README.md", "package.json"]))
+    check issues.hasIssue("readme-command-drift")
+    let issue = issues.firstIssue("readme-command-drift")
+    check issue.file == "README.md"
+    check issue.category == "docs-drift"
+    check issue.triage == triageFixNow
+    check issue.severity == severityWarning
+
+  test "accepts README commands with existing package scripts and task targets":
+    let root = getTempDir() / "scour-readme-command-valid"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "README.md", "```sh\nnpm run test\nmake build\njust lint\ntask docs\n```\n")
+    writeFile(root / "package.json", """{"scripts":{"test":"nimble test"}}""" & "\n")
+    writeFile(root / "Makefile", "build:\n\ttrue\n")
+    writeFile(root / "justfile", "lint:\n  true\n")
+    writeFile(root / "Taskfile.yml", "tasks:\n  docs:\n    cmds:\n      - true\n")
+
+    let issues = scanCrossReference(testPlan(root, @[
+      "README.md",
+      "package.json",
+      "Makefile",
+      "justfile",
+      "Taskfile.yml"
+    ]))
+    check issues.hasIssue("readme-command-drift") == false
+
+  test "reports CI run command with missing script target":
+    let root = getTempDir() / "scour-ci-command-drift"
+    cleanDir(root)
+    createDir(root / ".github" / "workflows")
+    writeFile(root / ".github" / "workflows" / "ci.yml", "jobs:\n  test:\n    steps:\n      - run: npm run missing\n")
+    writeFile(root / "package.json", """{"scripts":{"test":"nimble test"}}""" & "\n")
+
+    let issues = scanCrossReference(testPlan(root, @[
+      ".github/workflows/ci.yml",
+      "package.json"
+    ]))
+    check issues.hasIssue("ci-command-drift")
+    let issue = issues.firstIssue("ci-command-drift")
+    check issue.file == ".github/workflows/ci.yml"
+    check issue.category == "ci-drift"
+    check issue.triage == triageBlocker
+    check issue.severity == severityError
+
+  test "accepts CI run commands with valid inline and block targets":
+    let root = getTempDir() / "scour-ci-command-valid"
+    cleanDir(root)
+    createDir(root / ".github" / "workflows")
+    writeFile(root / ".github" / "workflows" / "ci.yml", "jobs:\n  test:\n    steps:\n      - run: npm run test\n      - run: |\n          make build\n")
+    writeFile(root / "package.json", """{"scripts":{"test":"nimble test"}}""" & "\n")
+    writeFile(root / "Makefile", "build:\n\ttrue\n")
+
+    let issues = scanCrossReference(testPlan(root, @[
+      ".github/workflows/ci.yml",
+      "package.json",
+      "Makefile"
+    ]))
+    check issues.hasIssue("ci-command-drift") == false
+
+  test "reports package lock drift in Git inventory":
+    let root = getTempDir() / "scour-package-lock-git"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "app")
+    writeFile(root / "app" / "package.json", "{}\n")
+    writeFile(root / "app" / "package-lock.json", "{}\n")
+    check run("git add app/package.json app/package-lock.json", root).exitCode == 0
+    check run("git commit -m package", root).exitCode == 0
+    writeFile(root / "app" / "package.json", """{"scripts":{"test":"true"}}""" & "\n")
+
+    let issues = scanCrossReference(ScanPlan(
+      mode: scanChanged,
+      repo: RepoContext(root: root, isGit: true),
+      candidates: @["app/package.json"]
+    ))
+    check issues.hasIssue("package-lock-drift")
+    let issue = issues.firstIssue("package-lock-drift")
+    check issue.file == "app/package.json"
+    check issue.category == "package-drift"
+    check issue.triage == triageFixNow
+    check issue.severity == severityWarning
+
+  test "does not report package lock drift when lockfile changed or no lockfile exists":
+    let root = getTempDir() / "scour-package-lock-negatives"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "with-lock")
+    createDir(root / "no-lock")
+    writeFile(root / "with-lock" / "package.json", "{}\n")
+    writeFile(root / "with-lock" / "package-lock.json", "{}\n")
+    writeFile(root / "no-lock" / "package.json", "{}\n")
+    check run("git add with-lock/package.json with-lock/package-lock.json no-lock/package.json", root).exitCode == 0
+    check run("git commit -m packages", root).exitCode == 0
+
+    let withLockIssues = scanCrossReference(ScanPlan(
+      mode: scanChanged,
+      repo: RepoContext(root: root, isGit: true),
+      candidates: @["with-lock/package.json", "with-lock/package-lock.json"]
+    ))
+    check withLockIssues.hasIssue("package-lock-drift") == false
+
+    let noLockIssues = scanCrossReference(ScanPlan(
+      mode: scanChanged,
+      repo: RepoContext(root: root, isGit: true),
+      candidates: @["no-lock/package.json"]
+    ))
+    check noLockIssues.hasIssue("package-lock-drift") == false
+
 suite "scan planning and files":
   test "selects default modes":
     check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true)) == scanChanged
@@ -515,3 +659,33 @@ suite "command behavior":
     check "warning duplicate-lockfiles app/package.json - Multiple package manager lockfiles found in the same package root." in result.output
     check "warning dockerignore-missing Dockerfile - Dockerfile has no same-directory .dockerignore." in result.output
     check "warning generated-files dist/index.js - Generated output is tracked in the repository." in result.output
+
+  test "scan commands render cross-reference issue ids":
+    let binary = getTempDir() / "scour-test-bin-cross-rules"
+    let cache = getTempDir() / "scour-test-nimcache-cross-rules"
+    if fileExists(binary):
+      removeFile(binary)
+    cleanDir(cache)
+    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" & binary.quoteShell & " src/scour.nim")
+    check build.exitCode == 0
+
+    let root = getTempDir() / "scour-command-cross-rules"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / ".github" / "workflows")
+    createDir(root / "app")
+    writeFile(root / "app" / "package.json", "{}\n")
+    writeFile(root / "app" / "package-lock.json", "{}\n")
+    writeFile(root / "README.md", "```sh\nnpm run missing\n```\n")
+    writeFile(root / ".github" / "workflows" / "ci.yml", "jobs:\n  test:\n    steps:\n      - run: npm run missing\n")
+    writeFile(root / "app.ts", "const token = process.env.API_TOKEN;\n")
+    check run("git add app/package.json app/package-lock.json README.md .github/workflows/ci.yml app.ts", root).exitCode == 0
+    check run("git commit -m cross-reference-fixtures", root).exitCode == 0
+    writeFile(root / "app" / "package.json", """{"scripts":{"test":"true"}}""" & "\n")
+
+    let result = run(binary.quoteShell & " app.ts README.md .github/workflows/ci.yml app/package.json", root)
+    check result.exitCode == 0
+    check "error env-drift app.ts:1:15 - Environment variable API_TOKEN is used but absent from env example files." in result.output
+    check "warning readme-command-drift README.md:2:1 - Command `npm run missing` references a missing script or task target." in result.output
+    check "error ci-command-drift .github/workflows/ci.yml:4:14 - Command `npm run missing` references a missing script or task target." in result.output
+    check "warning package-lock-drift app/package.json - package.json changed without its existing Node lockfile." in result.output
