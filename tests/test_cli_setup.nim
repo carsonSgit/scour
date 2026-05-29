@@ -7,6 +7,7 @@ import ../src/scourpkg/files
 import ../src/scourpkg/issues
 import ../src/scourpkg/repo
 import ../src/scourpkg/rules/branch_hygiene
+import ../src/scourpkg/rules/repo_hygiene
 import ../src/scourpkg/scan_plan
 import ../src/scourpkg/text_output
 
@@ -280,6 +281,104 @@ suite "branch hygiene rules":
     let issues = scanBranchHygiene(testPlan(root, @["notes.txt"]))
     check issues.len == 0
 
+suite "repository hygiene rules":
+  test "reports duplicate lockfiles in one package root":
+    let root = getTempDir() / "scour-duplicate-lockfiles"
+    cleanDir(root)
+    createDir(root / "app")
+    writeFile(root / "app" / "package.json", "{}\n")
+    writeFile(root / "app" / "package-lock.json", "{}\n")
+    writeFile(root / "app" / "yarn.lock", "\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @[
+      "app/package.json",
+      "app/package-lock.json",
+      "app/yarn.lock"
+    ]))
+    check issues.hasIssue("duplicate-lockfiles")
+
+    let issue = issues.firstIssue("duplicate-lockfiles")
+    check issue.file == "app/package.json"
+    check issue.category == "package-drift"
+    check issue.triage == triageFixNow
+    check issue.severity == severityWarning
+
+  test "allows different package roots with one lockfile each":
+    let root = getTempDir() / "scour-lockfiles-by-root"
+    cleanDir(root)
+    createDir(root / "app")
+    createDir(root / "site")
+    writeFile(root / "app" / "package.json", "{}\n")
+    writeFile(root / "app" / "package-lock.json", "{}\n")
+    writeFile(root / "site" / "package.json", "{}\n")
+    writeFile(root / "site" / "yarn.lock", "\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @[
+      "app/package.json",
+      "app/package-lock.json",
+      "site/package.json",
+      "site/yarn.lock"
+    ]))
+    check issues.hasIssue("duplicate-lockfiles") == false
+
+  test "reports Dockerfile without same-directory dockerignore":
+    let root = getTempDir() / "scour-dockerignore-missing"
+    cleanDir(root)
+    createDir(root / "services" / "api")
+    writeFile(root / "services" / "api" / "Dockerfile", "FROM scratch\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @["services/api/Dockerfile"]))
+    check issues.hasIssue("dockerignore-missing")
+
+    let issue = issues.firstIssue("dockerignore-missing")
+    check issue.file == "services/api/Dockerfile"
+    check issue.category == "docker-drift"
+    check issue.triage == triageFixNow
+    check issue.severity == severityWarning
+
+  test "allows Dockerfile with same-directory dockerignore":
+    let root = getTempDir() / "scour-dockerignore-present"
+    cleanDir(root)
+    createDir(root / "services" / "api")
+    writeFile(root / "services" / "api" / "Dockerfile.prod", "FROM scratch\n")
+    writeFile(root / "services" / "api" / ".dockerignore", "node_modules\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @[
+      "services/api/Dockerfile.prod",
+      "services/api/.dockerignore"
+    ]))
+    check issues.hasIssue("dockerignore-missing") == false
+
+  test "reports generated files at any path segment":
+    let root = getTempDir() / "scour-generated-files"
+    cleanDir(root)
+    createDir(root / "packages" / "web" / "dist")
+    createDir(root / "coverage")
+    writeFile(root / "packages" / "web" / "dist" / "index.js", "build output\n")
+    writeFile(root / "coverage" / "report.txt", "coverage output\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @[
+      "packages/web/dist/index.js",
+      "coverage/report.txt"
+    ]))
+    check issues.hasIssue("generated-files")
+    check issues.firstIssue("generated-files").category == "repo-hygiene"
+
+  test "ignores untracked generated files in Git repositories":
+    let root = getTempDir() / "scour-generated-untracked"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "dist")
+    writeFile(root / "dist" / "index.js", "build output\n")
+
+    let plan = ScanPlan(
+      mode: scanAll,
+      repo: RepoContext(root: root, isGit: true),
+      candidates: @["dist/index.js"]
+    )
+    let issues = scanRepoHygiene(plan)
+    check issues.hasIssue("generated-files") == false
+
 suite "scan planning and files":
   test "selects default modes":
     check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true)) == scanChanged
@@ -389,3 +488,30 @@ suite "command behavior":
     let disabledResult = run(binary.quoteShell & " --config scour.toml all.ts", root)
     check disabledResult.exitCode == 0
     check disabledResult.output == "Scour passed. No failing issues found.\n"
+
+  test "scan commands render repository hygiene issue ids":
+    let binary = getTempDir() / "scour-test-bin-repo-rules"
+    let cache = getTempDir() / "scour-test-nimcache-repo-rules"
+    if fileExists(binary):
+      removeFile(binary)
+    cleanDir(cache)
+    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" & binary.quoteShell & " src/scour.nim")
+    check build.exitCode == 0
+
+    let root = getTempDir() / "scour-command-repo-rules"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "app")
+    createDir(root / "dist")
+    writeFile(root / "app" / "package.json", "{}\n")
+    writeFile(root / "app" / "package-lock.json", "{}\n")
+    writeFile(root / "app" / "pnpm-lock.yaml", "\n")
+    writeFile(root / "Dockerfile", "FROM scratch\n")
+    writeFile(root / "dist" / "index.js", "build output\n")
+    check run("git add app/package.json app/package-lock.json app/pnpm-lock.yaml Dockerfile dist/index.js", root).exitCode == 0
+
+    let result = run(binary.quoteShell & " --all", root)
+    check result.exitCode == 0
+    check "warning duplicate-lockfiles app/package.json - Multiple package manager lockfiles found in the same package root." in result.output
+    check "warning dockerignore-missing Dockerfile - Dockerfile has no same-directory .dockerignore." in result.output
+    check "warning generated-files dist/index.js - Generated output is tracked in the repository." in result.output
