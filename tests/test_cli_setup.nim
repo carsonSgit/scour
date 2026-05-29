@@ -1,10 +1,12 @@
 import os, osproc, strutils, unittest
 
 import ../src/scourpkg/cli
+import ../src/scourpkg/config
 import ../src/scourpkg/errors
 import ../src/scourpkg/files
 import ../src/scourpkg/issues
 import ../src/scourpkg/repo
+import ../src/scourpkg/rules/branch_hygiene
 import ../src/scourpkg/scan_plan
 import ../src/scourpkg/text_output
 
@@ -42,6 +44,25 @@ proc initGitRepo(root: string) =
 proc cleanDir(path: string) =
   if dirExists(path):
     removeDir(path)
+
+proc testPlan(root: string; candidates: seq[string]): ScanPlan =
+  ScanPlan(
+    mode: scanExplicitPaths,
+    repo: RepoContext(root: root, isGit: false),
+    candidates: candidates
+  )
+
+proc hasIssue(issues: seq[Issue]; ruleId: string): bool =
+  for issue in issues:
+    if issue.ruleId == ruleId:
+      return true
+  false
+
+proc firstIssue(issues: seq[Issue]; ruleId: string): Issue =
+  for issue in issues:
+    if issue.ruleId == ruleId:
+      return issue
+  Issue()
 
 suite "CLI parser":
   test "parses supported flags and paths":
@@ -164,6 +185,101 @@ suite "repo and config discovery":
     check discoverConfig(context, "").path == root / ".scour.toml"
     expectFatal(proc() = discard discoverConfig(context, "missing.toml"))
 
+suite "config loading":
+  test "defaults all rule settings on when no config is discovered":
+    let loaded = loadConfig(ConfigDiscovery(path: "", isExplicit: false))
+    check loaded.rules.consoleLog == true
+
+  test "loads discovered console-log rule setting":
+    let root = getTempDir() / "scour-runtime-config"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "scour.toml", "[rules]\nconsole-log = false\n")
+    let discovery = ConfigDiscovery(path: root / "scour.toml", isExplicit: false)
+    check loadConfig(discovery).rules.consoleLog == false
+
+  test "rejects invalid explicit config syntax":
+    let root = getTempDir() / "scour-invalid-config"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "scour.toml", "[rules\n")
+    let discovery = ConfigDiscovery(path: root / "scour.toml", isExplicit: true)
+    expectFatal(proc() = discard loadConfig(discovery))
+
+suite "branch hygiene rules":
+  test "reports each hygiene rule with file line and column":
+    let root = getTempDir() / "scour-rules"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", [
+      "const ok = 1;",
+      "<<<<<<< HEAD",
+      "debugger;",
+      "describe.only('focused', () => {});",
+      "it.skip('skipped', () => {});",
+      "console.log('debug');",
+      "// @ts-ignore",
+      "const value: string = 1;"
+    ].join("\n"))
+
+    let issues = scanBranchHygiene(testPlan(root, @["app.ts"]))
+    check issues.hasIssue("merge-conflict")
+    check issues.hasIssue("debugger")
+    check issues.hasIssue("focused-test")
+    check issues.hasIssue("skipped-test")
+    check issues.hasIssue("console-log")
+    check issues.hasIssue("ts-ignore")
+
+    let consoleIssue = issues.firstIssue("console-log")
+    check consoleIssue.file == "app.ts"
+    check consoleIssue.line == 6
+    check consoleIssue.column == 1
+
+    let tsIgnore = issues.firstIssue("ts-ignore")
+    check tsIgnore.line == 7
+    check tsIgnore.column == 4
+
+  test "recognizes alternate focused and skipped test forms":
+    let root = getTempDir() / "scour-test-forms"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "spec.ts", "fdescribe('a', () => {});\nfit('b', () => {});\nxdescribe('c', () => {});\nxit('d', () => {});\n")
+    let issues = scanBranchHygiene(testPlan(root, @["spec.ts"]))
+    check issues.firstIssue("focused-test").line == 1
+    check issues.firstIssue("skipped-test").line == 3
+
+  test "keeps low false positive behavior":
+    let root = getTempDir() / "scour-rule-negatives"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", [
+      "// debugger;",
+      "// console.log('commented');",
+      "console.error('real but allowed');",
+      "const profit = 1;",
+      "// @ts-expect-error",
+      "const value: string = 1;"
+    ].join("\n"))
+    let issues = scanBranchHygiene(testPlan(root, @["app.ts"]))
+    check issues.len == 0
+
+  test "disables console-log through runtime config":
+    let root = getTempDir() / "scour-console-disabled"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", "console.log('debug');\n")
+    let cfg = RuntimeConfig(rules: RuleSettings(consoleLog: false))
+    let issues = scanBranchHygiene(testPlan(root, @["app.ts"]), cfg)
+    check issues.hasIssue("console-log") == false
+
+  test "scopes JavaScript and TypeScript rules to matching files":
+    let root = getTempDir() / "scour-rule-scope"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "notes.txt", "debugger;\nconsole.log('debug');\n@ts-ignore\n")
+    let issues = scanBranchHygiene(testPlan(root, @["notes.txt"]))
+    check issues.len == 0
+
 suite "scan planning and files":
   test "selects default modes":
     check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true)) == scanChanged
@@ -230,3 +346,46 @@ suite "command behavior":
     check run("git add new.txt", root).exitCode == 0
     check run(binary.quoteShell & " --staged", root).exitCode == 0
     check run(binary.quoteShell & " --since HEAD", root).exitCode == 0
+
+  test "scan commands render hygiene issues across modes":
+    let binary = getTempDir() / "scour-test-bin-rules"
+    let cache = getTempDir() / "scour-test-nimcache-rules"
+    if fileExists(binary):
+      removeFile(binary)
+    cleanDir(cache)
+    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" & binary.quoteShell & " src/scour.nim")
+    check build.exitCode == 0
+
+    let root = getTempDir() / "scour-command-rules"
+    cleanDir(root)
+    initGitRepo(root)
+
+    writeFile(root / "all.ts", "console.log('all');\n")
+    let allResult = run(binary.quoteShell & " --all", root)
+    check allResult.exitCode == 0
+    check "error console-log all.ts:1:1 - console.log call found." in allResult.output
+
+    writeFile(root / "explicit.ts", "debugger;\n")
+    let explicitResult = run(binary.quoteShell & " explicit.ts", root)
+    check explicitResult.exitCode == 0
+    check "error debugger explicit.ts:1:1 - Debugger statement found." in explicitResult.output
+
+    writeFile(root / "staged.ts", "it.only('focused', () => {});\n")
+    check run("git add staged.ts", root).exitCode == 0
+    let stagedResult = run(binary.quoteShell & " --staged", root)
+    check stagedResult.exitCode == 0
+    check "error focused-test staged.ts:1:1 - Focused test left in source." in stagedResult.output
+
+    check run("git add all.ts explicit.ts", root).exitCode == 0
+    check run("git commit -m hygiene-fixtures", root).exitCode == 0
+    writeFile(root / "since.ts", "test.skip('skipped', () => {});\n")
+    check run("git add since.ts", root).exitCode == 0
+    check run("git commit -m since-fixture", root).exitCode == 0
+    let sinceResult = run(binary.quoteShell & " --since HEAD~1", root)
+    check sinceResult.exitCode == 0
+    check "error skipped-test since.ts:1:1 - Skipped test left in source." in sinceResult.output
+
+    writeFile(root / "scour.toml", "[rules]\nconsole-log = false\n")
+    let disabledResult = run(binary.quoteShell & " --config scour.toml all.ts", root)
+    check disabledResult.exitCode == 0
+    check disabledResult.output == "Scour passed. No failing issues found.\n"
