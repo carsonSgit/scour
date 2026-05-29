@@ -34,11 +34,32 @@ CLI args
        all: recursive files under root
        explicit paths: expand files and directories
        always skip .git, missing files, and binary files
-  -> emit scan-plan summary
-       repo root
-       Git detected
-       config path or none
+  -> build scan plan
+       repo root and Git status
+       config discovery result
        scan mode
        base ref when selected
-       candidate file count and list
+       candidate files
+  -> run branch hygiene rules on candidate files
+       merge-conflict
+       debugger
+       console-log
+       focused-test
+       skipped-test
+       ts-ignore
+       applies runtime config where supported
+  -> run repository hygiene rules on repository metadata
+       inside Git: git ls-files tracked-file inventory
+       outside Git: candidate files from the scan plan
+       duplicate-lockfiles
+       dockerignore-missing
+       generated-files
+  -> combine issues
+       branch hygiene issues
+       repository hygiene issues
+  -> render text output
+       pass message when no issues
+       issue rows with severity, rule id, location, and message
+       suggestions when present
+       summary counts by severity and affected files
 ```
