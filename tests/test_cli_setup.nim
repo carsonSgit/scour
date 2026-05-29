@@ -7,6 +7,7 @@ import ../src/scourpkg/files
 import ../src/scourpkg/issues
 import ../src/scourpkg/repo
 import ../src/scourpkg/rules/branch_hygiene
+import ../src/scourpkg/rules/repo_hygiene
 import ../src/scourpkg/scan_plan
 import ../src/scourpkg/text_output
 
@@ -279,6 +280,46 @@ suite "branch hygiene rules":
     writeFile(root / "notes.txt", "debugger;\nconsole.log('debug');\n@ts-ignore\n")
     let issues = scanBranchHygiene(testPlan(root, @["notes.txt"]))
     check issues.len == 0
+
+suite "repository hygiene rules":
+  test "reports duplicate lockfiles in one package root":
+    let root = getTempDir() / "scour-duplicate-lockfiles"
+    cleanDir(root)
+    createDir(root / "app")
+    writeFile(root / "app" / "package.json", "{}\n")
+    writeFile(root / "app" / "package-lock.json", "{}\n")
+    writeFile(root / "app" / "yarn.lock", "\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @[
+      "app/package.json",
+      "app/package-lock.json",
+      "app/yarn.lock"
+    ]))
+    check issues.hasIssue("duplicate-lockfiles")
+
+    let issue = issues.firstIssue("duplicate-lockfiles")
+    check issue.file == "app/package.json"
+    check issue.category == "package-drift"
+    check issue.triage == triageFixNow
+    check issue.severity == severityWarning
+
+  test "allows different package roots with one lockfile each":
+    let root = getTempDir() / "scour-lockfiles-by-root"
+    cleanDir(root)
+    createDir(root / "app")
+    createDir(root / "site")
+    writeFile(root / "app" / "package.json", "{}\n")
+    writeFile(root / "app" / "package-lock.json", "{}\n")
+    writeFile(root / "site" / "package.json", "{}\n")
+    writeFile(root / "site" / "yarn.lock", "\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @[
+      "app/package.json",
+      "app/package-lock.json",
+      "site/package.json",
+      "site/yarn.lock"
+    ]))
+    check issues.hasIssue("duplicate-lockfiles") == false
 
 suite "scan planning and files":
   test "selects default modes":
