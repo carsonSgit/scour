@@ -1,6 +1,6 @@
 import algorithm, os, osproc, sequtils, strutils
 
-import errors, scan_plan
+import config, errors, scan_plan
 
 proc runGit(root: string; args: string): tuple[output: string, exitCode: int] =
   execCmdEx("git -C " & quoteShell(root) & " " & args)
@@ -46,6 +46,22 @@ proc uniqueSorted(paths: seq[string]): seq[string] =
   result = paths.deduplicate()
   result.sort()
 
+proc passesConfiguredFilters(root, relative: string; runtimeConfig: RuntimeConfig): bool =
+  if relative.pathIgnored(runtimeConfig.ignorePaths):
+    return false
+  if runtimeConfig.maxFileSize > 0:
+    try:
+      if getFileSize(root / relative) > runtimeConfig.maxFileSize:
+        return false
+    except OSError:
+      return false
+  true
+
+proc applyConfiguredFilters(files: seq[string]; root: string; runtimeConfig: RuntimeConfig): seq[string] =
+  for file in files:
+    if passesConfiguredFilters(root, file, runtimeConfig):
+      result.add(file)
+
 proc filesFromGitDiff(root: string; args: string): seq[string] =
   let git = runGit(root, args)
   if git.exitCode != 0:
@@ -85,7 +101,7 @@ proc explicitFiles(root: string; paths: seq[string]): seq[string] =
         result.addCandidate(root, child)
   result = uniqueSorted(result)
 
-proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions): tuple[baseRef: string, files: seq[string]] =
+proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; runtimeConfig = defaultConfig()): tuple[baseRef: string, files: seq[string]] =
   case mode
   of scanStaged:
     result.files = filesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR")
@@ -112,3 +128,4 @@ proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions):
     result.files = allFiles(repo.root)
   of scanExplicitPaths:
     result.files = explicitFiles(repo.root, options.explicitPaths)
+  result.files = result.files.applyConfiguredFilters(repo.root, runtimeConfig)
