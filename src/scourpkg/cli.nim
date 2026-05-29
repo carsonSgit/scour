@@ -4,6 +4,7 @@ import errors, scan_plan
 
 proc parseCliArgs*(args: seq[string]): CliOptions =
   var options: CliOptions
+  options.colorMode = colorAuto
   var index = 0
 
   while index < args.len:
@@ -27,6 +28,19 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
       if index >= args.len:
         fatal("--config requires a path")
       options.configPath = args[index]
+    of "--color":
+      inc index
+      if index >= args.len:
+        fatal("--color requires auto, always, or never")
+      case args[index]
+      of "auto":
+        options.colorMode = colorAuto
+      of "always":
+        options.colorMode = colorAlways
+      of "never":
+        options.colorMode = colorNever
+      else:
+        fatal("invalid --color value: " & args[index])
     of "--":
       discard
     else:
