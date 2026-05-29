@@ -1,4 +1,5 @@
-import cli, errors, files, help, issues, repo, scan_plan, text_output
+import cli, config, errors, files, help, repo, scan_plan, text_output
+import rules/branch_hygiene
 
 proc runScour*(): int =
   try:
@@ -11,19 +12,20 @@ proc runScour*(): int =
       return 0
 
     let repoContext = discoverRepo()
-    let config = discoverConfig(repoContext, options.configPath)
+    let configDiscovery = discoverConfig(repoContext, options.configPath)
+    let runtimeConfig = loadConfig(configDiscovery)
     let mode = resolveScanMode(options, repoContext)
     let collected = collectCandidates(repoContext, mode, options)
     let plan = ScanPlan(
       mode: mode,
       repo: repoContext,
-      config: config,
+      config: configDiscovery,
       sinceRef: options.sinceRef,
       baseRef: collected.baseRef,
       candidates: collected.files
     )
 
-    let foundIssues: seq[Issue] = @[]
+    let foundIssues = scanBranchHygiene(plan, runtimeConfig)
     stdout.write(renderIssues(foundIssues, options))
     0
   except FatalUserError as error:
