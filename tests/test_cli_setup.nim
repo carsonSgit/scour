@@ -1,6 +1,7 @@
 import os, osproc, strutils, unittest
 
 import ../src/scourpkg/cli
+import ../src/scourpkg/config
 import ../src/scourpkg/errors
 import ../src/scourpkg/files
 import ../src/scourpkg/issues
@@ -163,6 +164,27 @@ suite "repo and config discovery":
     let context = RepoContext(root: root, isGit: false)
     check discoverConfig(context, "").path == root / ".scour.toml"
     expectFatal(proc() = discard discoverConfig(context, "missing.toml"))
+
+suite "config loading":
+  test "defaults all rule settings on when no config is discovered":
+    let loaded = loadConfig(ConfigDiscovery(path: "", isExplicit: false))
+    check loaded.rules.consoleLog == true
+
+  test "loads discovered console-log rule setting":
+    let root = getTempDir() / "scour-runtime-config"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "scour.toml", "[rules]\nconsole-log = false\n")
+    let discovery = ConfigDiscovery(path: root / "scour.toml", isExplicit: false)
+    check loadConfig(discovery).rules.consoleLog == false
+
+  test "rejects invalid explicit config syntax":
+    let root = getTempDir() / "scour-invalid-config"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "scour.toml", "[rules\n")
+    let discovery = ConfigDiscovery(path: root / "scour.toml", isExplicit: true)
+    expectFatal(proc() = discard loadConfig(discovery))
 
 suite "scan planning and files":
   test "selects default modes":
