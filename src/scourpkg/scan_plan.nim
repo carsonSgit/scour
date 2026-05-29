@@ -1,10 +1,16 @@
 type
+  ColorMode* = enum
+    colorAuto = "auto",
+    colorAlways = "always",
+    colorNever = "never"
+
   ScanMode* = enum
     scanChanged, scanStaged, scanAll, scanExplicitPaths
 
   CliOptions* = object
     showHelp*: bool
     showVersion*: bool
+    colorMode*: ColorMode
     staged*: bool
     all*: bool
     sinceRef*: string
@@ -46,4 +52,3 @@ proc resolveScanMode*(options: CliOptions; repo: RepoContext): ScanMode =
   if repo.isGit:
     return scanChanged
   scanAll
-
