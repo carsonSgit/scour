@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.10"
+
+      - name: Build
+        run: nimble build -y
+
+      - name: Test
+        run: nimble test -y
+
+      - name: Smoke test help
+        run: nim c -r src/scour.nim -- --help
+
+      - name: Smoke test version
+        run: nim c -r src/scour.nim -- --version
