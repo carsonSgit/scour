@@ -349,6 +349,36 @@ suite "repository hygiene rules":
     ]))
     check issues.hasIssue("dockerignore-missing") == false
 
+  test "reports generated files at any path segment":
+    let root = getTempDir() / "scour-generated-files"
+    cleanDir(root)
+    createDir(root / "packages" / "web" / "dist")
+    createDir(root / "coverage")
+    writeFile(root / "packages" / "web" / "dist" / "index.js", "build output\n")
+    writeFile(root / "coverage" / "report.txt", "coverage output\n")
+
+    let issues = scanRepoHygiene(testPlan(root, @[
+      "packages/web/dist/index.js",
+      "coverage/report.txt"
+    ]))
+    check issues.hasIssue("generated-files")
+    check issues.firstIssue("generated-files").category == "repo-hygiene"
+
+  test "ignores untracked generated files in Git repositories":
+    let root = getTempDir() / "scour-generated-untracked"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "dist")
+    writeFile(root / "dist" / "index.js", "build output\n")
+
+    let plan = ScanPlan(
+      mode: scanAll,
+      repo: RepoContext(root: root, isGit: true),
+      candidates: @["dist/index.js"]
+    )
+    let issues = scanRepoHygiene(plan)
+    check issues.hasIssue("generated-files") == false
+
 suite "scan planning and files":
   test "selects default modes":
     check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true)) == scanChanged
