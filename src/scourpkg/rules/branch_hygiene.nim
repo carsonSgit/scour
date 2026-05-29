@@ -68,12 +68,12 @@ proc scanBranchHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Is
   let focusedTest = LineRule(
     id: "focused-test",
     message: "Focused test left in source.",
-    patterns: @["describe.only", "it.only", "test.only", "context.only", "fdescribe", "fit"]
+    patterns: @["describe.only", "it.only", "test.only", "context.only", "fdescribe(", "fit("]
   )
   let skippedTest = LineRule(
     id: "skipped-test",
     message: "Skipped test left in source.",
-    patterns: @["describe.skip", "it.skip", "test.skip", "context.skip", "xdescribe", "xit"]
+    patterns: @["describe.skip", "it.skip", "test.skip", "context.skip", "xdescribe(", "xit("]
   )
 
   for candidate in plan.candidates:
