@@ -11,6 +11,19 @@ const Lockfiles = [
   "bun.lockb"
 ]
 
+const GeneratedDirs = [
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".nuxt",
+  "out",
+  "target",
+  ".cache",
+  ".parcel-cache",
+  ".turbo"
+]
+
 proc normalizeRepoPath(path: string): string =
   path.replace('\\', '/')
 
@@ -98,7 +111,24 @@ proc scanDockerignoreMissing(result: var seq[Issue]; files: openArray[string]) =
         "Dockerfile has no same-directory .dockerignore."
       ))
 
+proc isGeneratedFile(file: string): bool =
+  for part in file.normalizeRepoPath().split('/'):
+    if part in GeneratedDirs:
+      return true
+  false
+
+proc scanGeneratedFiles(result: var seq[Issue]; files: openArray[string]) =
+  for file in files:
+    if file.isGeneratedFile():
+      result.add(warning(
+        "generated-files",
+        "repo-hygiene",
+        file,
+        "Generated output is tracked in the repository."
+      ))
+
 proc scanRepoHygiene*(plan: ScanPlan): seq[Issue] =
   let files = repositoryFiles(plan)
   result.scanDuplicateLockfiles(files)
   result.scanDockerignoreMissing(files)
+  result.scanGeneratedFiles(files)
