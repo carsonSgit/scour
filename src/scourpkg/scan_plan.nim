@@ -1,4 +1,11 @@
+import issues
+
 type
+  OutputFormat* = enum
+    formatText = "text",
+    formatJson = "json",
+    formatGitHub = "github"
+
   ColorMode* = enum
     colorAuto = "auto",
     colorAlways = "always",
@@ -12,6 +19,11 @@ type
     showVersion*: bool
     colorMode*: ColorMode
     colorExplicit*: bool
+    outputFormat*: OutputFormat
+    formatExplicit*: bool
+    failOn*: FailureThreshold
+    failOnExplicit*: bool
+    exitZero*: bool
     staged*: bool
     all*: bool
     sinceRef*: string

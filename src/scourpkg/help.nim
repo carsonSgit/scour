@@ -13,5 +13,7 @@ Options:
   --since <ref>    Scan changes since a Git ref.
   --all            Scan all files under the repository root.
   --config <path>  Use an explicit config file.
+  --format <value> Output format: text, json, or github.
+  --fail-on <level> Fail on: error, warning, or info.
+  --exit-zero      Return success even when findings meet the threshold.
 """
-
