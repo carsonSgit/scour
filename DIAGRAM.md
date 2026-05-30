@@ -9,6 +9,9 @@ CLI args
        --since <ref>
        --all
        --config <path>
+       --format <text|json|github>
+       --fail-on <error|warning|info>
+       --exit-zero
        paths...
        reject conflicting scan modes
   -> resolve repo
@@ -70,9 +73,20 @@ CLI args
        branch hygiene issues
        repository hygiene issues
        cross-reference issues
-  -> render text output
+  -> resolve output and failure settings
        output.color config default applies unless --color was passed
-       output.format currently supports text
+       output.format config default applies unless --format was passed
+       top-level fail_on config default applies unless --fail-on was passed
+  -> render selected output
+       text: pass message, issue rows, suggestions, and summary
+       json: stable summary, triage counts, and issue fields
+       github: workflow annotations, no output for a clean scan
+  -> choose exit code
+       fatal arguments or config: 2
+       findings at or above failure threshold: 1
+       --exit-zero overrides issue-based failure only
+       otherwise: 0
+  -> text output details
        pass message when no issues
        issue rows with severity, rule id, location, and message
        suggestions when present
