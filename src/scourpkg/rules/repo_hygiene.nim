@@ -1,6 +1,6 @@
 import algorithm, os, osproc, sequtils, strutils, tables
 
-import ../issues, ../scan_plan
+import ../config, ../issues, ../scan_plan
 
 const Lockfiles = [
   "package-lock.json",
@@ -127,8 +127,9 @@ proc scanGeneratedFiles(result: var seq[Issue]; files: openArray[string]) =
         "Generated output is tracked in the repository."
       ))
 
-proc scanRepoHygiene*(plan: ScanPlan): seq[Issue] =
+proc scanRepoHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Issue] =
   let files = repositoryFiles(plan)
   result.scanDuplicateLockfiles(files)
   result.scanDockerignoreMissing(files)
   result.scanGeneratedFiles(files)
+  result = result.applyRuleOverrides(runtimeConfig)

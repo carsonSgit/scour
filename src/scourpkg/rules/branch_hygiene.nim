@@ -100,7 +100,7 @@ proc scanBranchHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Is
             "Debugger statement found."
           ))
 
-        if runtimeConfig.rules.consoleLog:
+        if not runtimeConfig.ruleIsOff("console-log"):
           let consoleColumn = line.find("console.log(")
           if consoleColumn >= 0:
             result.add(issue(
@@ -124,3 +124,5 @@ proc scanBranchHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Is
             tsIgnoreColumn + 1,
             "@ts-ignore suppression found."
           ))
+
+  result = result.applyRuleOverrides(runtimeConfig)

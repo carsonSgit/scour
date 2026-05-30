@@ -34,6 +34,8 @@ CLI args
        all: recursive files under root
        explicit paths: expand files and directories
        always skip .git, missing files, and binary files
+       apply config ignore paths after collection
+       apply scan.max_file_size to text candidates
   -> build scan plan
        repo root and Git status
        config discovery result
@@ -47,25 +49,30 @@ CLI args
        focused-test
        skipped-test
        ts-ignore
-       applies runtime config where supported
+       applies rule severity/off and triage overrides
   -> run repository hygiene rules on repository metadata
        inside Git: git ls-files tracked-file inventory
        outside Git: candidate files from the scan plan
        duplicate-lockfiles
        dockerignore-missing
        generated-files
+       applies rule severity/off and triage overrides
   -> run cross-reference rules
        candidate files for changed source and package manifests
        repository inventory for tracked docs, workflows, env examples, package metadata, and task files
-       env-drift compares literal env usages with .env example/default files
+       env-drift compares literal env usages with configured env example/default files
+       env-drift skips configured ignored env vars
        readme-command-drift validates README.md and docs/**/*.md commands against known scripts and targets
        ci-command-drift validates workflow run commands against known scripts and targets
        package-lock-drift checks changed Node package.json files against existing same-directory lockfiles
+       applies rule severity/off and triage overrides
   -> combine issues
        branch hygiene issues
        repository hygiene issues
        cross-reference issues
   -> render text output
+       output.color config default applies unless --color was passed
+       output.format currently supports text
        pass message when no issues
        issue rows with severity, rule id, location, and message
        suggestions when present
