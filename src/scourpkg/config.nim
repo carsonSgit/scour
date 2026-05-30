@@ -23,17 +23,21 @@ type
     envExampleFiles*: seq[string]
     ignoredEnvVars*: seq[string]
     outputColor*: ColorMode
-    outputFormat*: string
+    outputFormat*: OutputFormat
+    failOn*: FailureThreshold
 
 proc defaultConfig*(): RuntimeConfig =
   RuntimeConfig(
     rules: @[],
     ignorePaths: @[],
     maxFileSize: 0,
-    envExampleFiles: @[".env.example", ".env.sample", ".env.template", ".env.defaults"],
-    ignoredEnvVars: @["NODE_ENV", "CI", "PATH", "HOME", "USER", "SHELL", "PWD", "OLDPWD"],
+    envExampleFiles: @[".env.example", ".env.sample", ".env.template",
+        ".env.defaults"],
+    ignoredEnvVars: @["NODE_ENV", "CI", "PATH", "HOME", "USER", "SHELL", "PWD",
+        "OLDPWD"],
     outputColor: colorAuto,
-    outputFormat: "text"
+    outputFormat: formatText,
+    failOn: failOnError
   )
 
 proc canonicalRuleId*(key: string): string =
@@ -57,7 +61,8 @@ proc validRuleId(ruleId: string): bool =
   ]
 
 proc unquote(value: string): string =
-  if value.len >= 2 and ((value[0] == '"' and value[^1] == '"') or (value[0] == '\'' and value[^1] == '\'')):
+  if value.len >= 2 and ((value[0] == '"' and value[^1] == '"') or (value[0] ==
+      '\'' and value[^1] == '\'')):
     value[1 .. ^2]
   else:
     value
@@ -71,14 +76,16 @@ proc parseBool(value: string; path: string; line: int): bool =
   else:
     fatal("invalid config value in " & path & ":" & $line & ": expected true or false")
 
-proc parseSeverity(value: string; path: string; line: int; key: string): RuleSeverity =
+proc parseSeverity(value: string; path: string; line: int;
+    key: string): RuleSeverity =
   case value.unquote()
   of "error": ruleSeverityError
   of "warning": ruleSeverityWarning
   of "info": ruleSeverityInfo
   of "off": ruleSeverityOff
   else:
-    fatal("invalid config value in " & path & ":" & $line & " for " & key & ": unknown severity `" & value.unquote() & "`. Expected one of: error, warning, info, off")
+    fatal("invalid config value in " & path & ":" & $line & " for " & key &
+        ": unknown severity `" & value.unquote() & "`. Expected one of: error, warning, info, off")
 
 proc toSeverity*(value: RuleSeverity): Severity =
   case value
@@ -87,7 +94,8 @@ proc toSeverity*(value: RuleSeverity): Severity =
   of ruleSeverityInfo: severityInfo
   of ruleSeverityOff: severityInfo
 
-proc parseTriage(value: string; path: string; line: int; key: string): TriageLevel =
+proc parseTriage(value: string; path: string; line: int;
+    key: string): TriageLevel =
   case value.unquote()
   of "blocker": triageBlocker
   of "fix-now": triageFixNow
@@ -95,7 +103,8 @@ proc parseTriage(value: string; path: string; line: int; key: string): TriageLev
   of "cleanup": triageCleanup
   of "ignored": triageIgnored
   else:
-    fatal("invalid config value in " & path & ":" & $line & " for " & key & ": unknown triage `" & value.unquote() & "`. Expected one of: blocker, fix-now, review, cleanup, ignored")
+    fatal("invalid config value in " & path & ":" & $line & " for " & key &
+        ": unknown triage `" & value.unquote() & "`. Expected one of: blocker, fix-now, review, cleanup, ignored")
 
 proc parseStringArray(value: string; path: string; line: int; key: string): seq[string] =
   let text = value.strip()
@@ -144,7 +153,8 @@ proc ensureRule(config: var RuntimeConfig; ruleId: string): int =
   config.rules.add(RuleOverride(ruleId: ruleId))
   result = config.rules.high
 
-proc setRuleSeverity(config: var RuntimeConfig; ruleId: string; severity: RuleSeverity) =
+proc setRuleSeverity(config: var RuntimeConfig; ruleId: string;
+    severity: RuleSeverity) =
   let index = config.ensureRule(ruleId)
   config.rules[index].severity = severity
   config.rules[index].hasSeverity = true
@@ -153,7 +163,8 @@ proc clearRuleSeverity(config: var RuntimeConfig; ruleId: string) =
   let index = config.ensureRule(ruleId)
   config.rules[index].hasSeverity = false
 
-proc setRuleTriage(config: var RuntimeConfig; ruleId: string; triage: TriageLevel) =
+proc setRuleTriage(config: var RuntimeConfig; ruleId: string;
+    triage: TriageLevel) =
   let index = config.ensureRule(ruleId)
   config.rules[index].triage = triage
   config.rules[index].hasTriage = true
@@ -228,11 +239,14 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
       if line.endsWith("]"):
         case pendingKey
         of "ignore.paths":
-          result.ignorePaths = parseStringArray(pendingValue, discovery.path, pendingLine, pendingKey)
+          result.ignorePaths = parseStringArray(pendingValue, discovery.path,
+              pendingLine, pendingKey)
         of "env.example_files":
-          result.envExampleFiles = parseStringArray(pendingValue, discovery.path, pendingLine, pendingKey)
+          result.envExampleFiles = parseStringArray(pendingValue,
+              discovery.path, pendingLine, pendingKey)
         of "env.ignored_vars":
-          result.ignoredEnvVars = parseStringArray(pendingValue, discovery.path, pendingLine, pendingKey)
+          result.ignoredEnvVars = parseStringArray(pendingValue, discovery.path,
+              pendingLine, pendingKey)
         else:
           discard
         pendingKey = ""
@@ -242,7 +256,8 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
     if line.startsWith("[") and line.endsWith("]"):
       section = line[1 ..< line.high].strip()
       if section notin ["rules", "triage", "ignore", "scan", "env", "output"]:
-        fatal("unknown config section in " & discovery.path & ":" & $lineNumber & ": " & section)
+        fatal("unknown config section in " & discovery.path & ":" &
+            $lineNumber & ": " & section)
       continue
 
     let separator = line.find('=')
@@ -256,25 +271,41 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
       else: key
 
     case section
+    of "":
+      if key == "fail_on":
+        case value.unquote()
+        of "error": result.failOn = failOnError
+        of "warning": result.failOn = failOnWarning
+        of "info": result.failOn = failOnInfo
+        else: fatal("invalid config value in " & discovery.path & ":" &
+            $lineNumber & " for " & qualified & ": expected error, warning, or info")
+      else:
+        fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
+            ": " & qualified)
     of "rules":
       let ruleId = canonicalRuleId(key)
       if not validRuleId(ruleId):
-        fatal("unknown config key in " & discovery.path & ":" & $lineNumber & ": " & qualified)
+        fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
+            ": " & qualified)
       if value in ["true", "false"]:
         if parseBool(value, discovery.path, lineNumber):
           result.clearRuleSeverity(ruleId)
         else:
           result.setRuleSeverity(ruleId, ruleSeverityOff)
       else:
-        result.setRuleSeverity(ruleId, parseSeverity(value, discovery.path, lineNumber, qualified))
+        result.setRuleSeverity(ruleId, parseSeverity(value, discovery.path,
+            lineNumber, qualified))
     of "triage":
       let ruleId = canonicalRuleId(key)
       if not validRuleId(ruleId):
-        fatal("unknown config key in " & discovery.path & ":" & $lineNumber & ": " & qualified)
-      result.setRuleTriage(ruleId, parseTriage(value, discovery.path, lineNumber, qualified))
+        fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
+            ": " & qualified)
+      result.setRuleTriage(ruleId, parseTriage(value, discovery.path,
+          lineNumber, qualified))
     of "ignore":
       if key != "paths":
-        fatal("unknown config key in " & discovery.path & ":" & $lineNumber & ": " & qualified)
+        fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
+            ": " & qualified)
       if not value.endsWith("]"):
         pendingKey = qualified
         pendingValue = value
@@ -287,18 +318,22 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
       elif key in ["mode", "respect_gitignore", "follow_symlinks"]:
         discard
       else:
-        fatal("unknown config key in " & discovery.path & ":" & $lineNumber & ": " & qualified)
+        fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
+            ": " & qualified)
     of "env":
       if key notin ["example_files", "ignored_vars"]:
-        fatal("unknown config key in " & discovery.path & ":" & $lineNumber & ": " & qualified)
+        fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
+            ": " & qualified)
       if not value.endsWith("]"):
         pendingKey = qualified
         pendingValue = value
         pendingLine = lineNumber
       elif key == "example_files":
-        result.envExampleFiles = parseStringArray(value, discovery.path, lineNumber, qualified)
+        result.envExampleFiles = parseStringArray(value, discovery.path,
+            lineNumber, qualified)
       else:
-        result.ignoredEnvVars = parseStringArray(value, discovery.path, lineNumber, qualified)
+        result.ignoredEnvVars = parseStringArray(value, discovery.path,
+            lineNumber, qualified)
     of "output":
       case key
       of "color":
@@ -306,15 +341,21 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
         of "auto": result.outputColor = colorAuto
         of "always": result.outputColor = colorAlways
         of "never": result.outputColor = colorNever
-        else: fatal("invalid config value in " & discovery.path & ":" & $lineNumber & " for " & qualified & ": expected auto, always, or never")
+        else: fatal("invalid config value in " & discovery.path & ":" &
+            $lineNumber & " for " & qualified & ": expected auto, always, or never")
       of "format":
-        result.outputFormat = value.unquote()
-        if result.outputFormat != "text":
-          fatal("unsupported output format in " & discovery.path & ":" & $lineNumber & ": " & result.outputFormat & " (only text is supported)")
+        case value.unquote()
+        of "text": result.outputFormat = formatText
+        of "json": result.outputFormat = formatJson
+        of "github": result.outputFormat = formatGitHub
+        else: fatal("invalid config value in " & discovery.path & ":" &
+            $lineNumber & " for " & qualified & ": expected text, json, or github")
       else:
-        fatal("unknown config key in " & discovery.path & ":" & $lineNumber & ": " & qualified)
+        fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
+            ": " & qualified)
     else:
-      fatal("unknown config key in " & discovery.path & ":" & $lineNumber & ": " & qualified)
+      fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
+          ": " & qualified)
 
   if pendingKey.len > 0:
     fatal("invalid config syntax in " & discovery.path & ":" & $pendingLine)
