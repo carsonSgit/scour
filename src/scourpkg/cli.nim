@@ -1,10 +1,12 @@
 import os, strutils
 
-import errors, scan_plan
+import errors, issues, scan_plan
 
 proc parseCliArgs*(args: seq[string]): CliOptions =
   var options: CliOptions
   options.colorMode = colorAuto
+  options.outputFormat = formatText
+  options.failOn = failOnError
   var index = 0
 
   while index < args.len:
@@ -28,6 +30,28 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
       if index >= args.len:
         fatal("--config requires a path")
       options.configPath = args[index]
+    of "--format":
+      inc index
+      if index >= args.len:
+        fatal("--format requires text, json, or github")
+      options.formatExplicit = true
+      case args[index]
+      of "text": options.outputFormat = formatText
+      of "json": options.outputFormat = formatJson
+      of "github": options.outputFormat = formatGitHub
+      else: fatal("invalid --format value: " & args[index])
+    of "--fail-on":
+      inc index
+      if index >= args.len:
+        fatal("--fail-on requires error, warning, or info")
+      options.failOnExplicit = true
+      case args[index]
+      of "error": options.failOn = failOnError
+      of "warning": options.failOn = failOnWarning
+      of "info": options.failOn = failOnInfo
+      else: fatal("invalid --fail-on value: " & args[index])
+    of "--exit-zero":
+      options.exitZero = true
     of "--color":
       inc index
       if index >= args.len:

@@ -1,10 +1,12 @@
-import os, osproc, strutils, unittest
+import json, os, osproc, strutils, unittest
 
 import ../src/scourpkg/cli
 import ../src/scourpkg/config
 import ../src/scourpkg/errors
 import ../src/scourpkg/files
 import ../src/scourpkg/issues
+import ../src/scourpkg/github_output
+import ../src/scourpkg/json_output
 import ../src/scourpkg/repo
 import ../src/scourpkg/rules/branch_hygiene
 import ../src/scourpkg/rules/cross_reference
@@ -28,7 +30,8 @@ template inDir(path: string; body: untyped) =
   finally:
     setCurrentDir(previousDir)
 
-proc run(command: string; workingDir = ""): tuple[output: string, exitCode: int] =
+proc run(command: string; workingDir = ""): tuple[output: string;
+    exitCode: int] =
   if workingDir.len > 0:
     execCmdEx(command, workingDir = workingDir)
   else:
@@ -66,11 +69,13 @@ proc firstIssue(issues: seq[Issue]; ruleId: string): Issue =
       return issue
   Issue()
 
-proc hasSeverityOverride(config: RuntimeConfig; ruleId: string; severity: RuleSeverity): bool =
+proc hasSeverityOverride(config: RuntimeConfig; ruleId: string;
+    severity: RuleSeverity): bool =
   let setting = config.ruleOverride(ruleId)
   setting.hasSeverity and setting.severity == severity
 
-proc hasTriageOverride(config: RuntimeConfig; ruleId: string; triage: TriageLevel): bool =
+proc hasTriageOverride(config: RuntimeConfig; ruleId: string;
+    triage: TriageLevel): bool =
   let setting = config.ruleOverride(ruleId)
   setting.hasTriage and setting.triage == triage
 
@@ -86,10 +91,22 @@ suite "CLI parser":
     check parseCliArgs(@["--color", "always"]).colorMode == colorAlways
     check parseCliArgs(@["--color", "never"]).colorMode == colorNever
 
+  test "parses CI output options":
+    let options = parseCliArgs(@[
+      "--format", "github", "--fail-on", "warning", "--exit-zero"
+    ])
+    check options.outputFormat == formatGitHub
+    check options.formatExplicit
+    check options.failOn == failOnWarning
+    check options.failOnExplicit
+    check options.exitZero
+
   test "rejects invalid flags":
     expectFatal(proc() = discard parseCliArgs(@["--wat"]))
     expectFatal(proc() = discard parseCliArgs(@["--color", "sometimes"]))
     expectFatal(proc() = discard parseCliArgs(@["--color"]))
+    expectFatal(proc() = discard parseCliArgs(@["--format", "xml"]))
+    expectFatal(proc() = discard parseCliArgs(@["--fail-on", "warn"]))
 
   test "rejects conflicting scan modes":
     expectFatal(proc() = discard parseCliArgs(@["--staged", "--all"]))
@@ -103,6 +120,7 @@ suite "issue summaries":
     check summary.bySeverity.warnings == 0
     check summary.bySeverity.infos == 0
     check summary.affectedFiles == 0
+    check summary.byTriage.ignored == 0
 
   test "counts mixed severities":
     let issues = @[
@@ -116,6 +134,52 @@ suite "issue summaries":
     check summary.bySeverity.errors == 1
     check summary.bySeverity.warnings == 2
     check summary.bySeverity.infos == 1
+
+  test "counts triage levels and evaluates thresholds":
+    let issues = @[
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityWarning, triage: triageFixNow),
+      Issue(severity: severityInfo, triage: triageReview),
+      Issue(severity: severityInfo, triage: triageCleanup),
+      Issue(severity: severityInfo, triage: triageIgnored)
+    ]
+    let summary = summarizeIssues(issues)
+    check summary.byTriage.blockers == 1
+    check summary.byTriage.fixNow == 1
+    check summary.byTriage.review == 1
+    check summary.byTriage.cleanup == 1
+    check summary.byTriage.ignored == 1
+    check @[Issue(severity: severityError)].hasFailingIssues(failOnError)
+    check @[Issue(severity: severityWarning)].hasFailingIssues(failOnError) == false
+    check @[Issue(severity: severityWarning)].hasFailingIssues(failOnWarning)
+    check @[Issue(severity: severityInfo)].hasFailingIssues(failOnInfo)
+
+suite "structured output":
+  test "renders stable JSON for clean scans and full issues":
+    let clean = parseJson(renderJsonIssues(@[]))
+    check clean["summary"]["total"].getInt() == 0
+    check clean["summary"]["triage"]["ignored"].getInt() == 0
+    check clean["issues"].len == 0
+    let rendered = parseJson(renderJsonIssues(@[Issue(
+      ruleId: "config/missing", severity: severityWarning,
+      triage: triageReview, category: "config", file: "a.nim",
+      line: 2, column: 3, message: "Missing.", suggestion: "Add it."
+    )]))
+    check rendered["issues"][0]["rule"].getStr() == "config/missing"
+    check rendered["issues"][0]["severity"].getStr() == "warning"
+    check rendered["issues"][0]["triage_level"].getStr() == "review"
+    check rendered["issues"][0]["suggestion"].getStr() == "Add it."
+
+  test "renders GitHub annotations with escaping and optional locations":
+    check renderGitHubIssues(@[]) == ""
+    let output = renderGitHubIssues(@[
+      Issue(ruleId: "a:b,c", severity: severityError, file: "a,b.ts",
+        line: 2, column: 3, message: "bad%\nline", suggestion: "fix\rnow"),
+      Issue(ruleId: "notice", severity: severityInfo, file: "README.md",
+        message: "review")
+    ])
+    check "::error file=a%2Cb.ts,title=a%3Ab%2Cc,line=2,col=3::bad%25%0Aline Suggestion: fix%0Dnow" in output
+    check "::notice file=README.md,title=notice::review" in output
 
   test "counts duplicate files once":
     let issues = @[
@@ -162,7 +226,8 @@ suite "text output":
     check location(Issue(file: "a.nim", line: 3, column: 9)) == "a.nim:3:9"
 
   test "controls ANSI color output":
-    let issues = @[Issue(ruleId: "rule/a", severity: severityError, file: "a.nim", message: "Bad.")]
+    let issues = @[Issue(ruleId: "rule/a", severity: severityError,
+        file: "a.nim", message: "Bad.")]
     check "\e[" notin renderIssues(issues, colorNever)
     check "\e[" in renderIssues(issues, colorAlways)
 
@@ -199,17 +264,20 @@ suite "config loading":
   test "defaults all rule settings on when no config is discovered":
     let loaded = loadConfig(ConfigDiscovery(path: "", isExplicit: false))
     check loaded.ruleIsOff("console-log") == false
-    check loaded.envExampleFiles == @[".env.example", ".env.sample", ".env.template", ".env.defaults"]
+    check loaded.envExampleFiles == @[".env.example", ".env.sample",
+        ".env.template", ".env.defaults"]
     check "NODE_ENV" in loaded.ignoredEnvVars
     check loaded.outputColor == colorAuto
-    check loaded.outputFormat == "text"
+    check loaded.outputFormat == formatText
+    check loaded.failOn == failOnError
 
   test "loads discovered console-log rule setting":
     let root = getTempDir() / "scour-runtime-config"
     cleanDir(root)
     createDir(root)
     writeFile(root / "scour.toml", "[rules]\nconsole-log = false\n")
-    let discovery = ConfigDiscovery(path: root / "scour.toml", isExplicit: false)
+    let discovery = ConfigDiscovery(path: root / "scour.toml",
+        isExplicit: false)
     check loadConfig(discovery).ruleIsOff("console-log")
 
   test "loads PRD-style config sections and underscore rule keys":
@@ -221,7 +289,7 @@ suite "config loading":
       "max_file_size = \"1KB\"",
       "",
       "[output]",
-      "format = \"text\"",
+      "format = \"json\"",
       "color = \"never\"",
       "",
       "[rules]",
@@ -242,9 +310,11 @@ suite "config loading":
       "ignored_vars = [\"NODE_ENV\", \"PUBLIC_URL\"]"
     ].join("\n"))
 
-    let loaded = loadConfig(ConfigDiscovery(path: root / "scour.toml", isExplicit: false))
+    let loaded = loadConfig(ConfigDiscovery(path: root / "scour.toml",
+        isExplicit: false))
     check loaded.maxFileSize == 1024
     check loaded.outputColor == colorNever
+    check loaded.outputFormat == formatJson
     check loaded.hasSeverityOverride("console-log", ruleSeverityWarning)
     check loaded.hasTriageOverride("console-log", triageReview)
     check loaded.ruleIsOff("ts-ignore")
@@ -266,19 +336,28 @@ suite "config loading":
     createDir(root)
 
     writeFile(root / "section.toml", "[custom_patterns]\nfoo = \"bar\"\n")
-    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "section.toml", isExplicit: true)))
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root /
+        "section.toml", isExplicit: true)))
 
     writeFile(root / "key.toml", "[rules]\nunknown_rule = \"error\"\n")
-    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "key.toml", isExplicit: true)))
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root /
+        "key.toml", isExplicit: true)))
 
     writeFile(root / "severity.toml", "[rules]\nconsole_log = \"warn\"\n")
-    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "severity.toml", isExplicit: true)))
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root /
+        "severity.toml", isExplicit: true)))
 
     writeFile(root / "triage.toml", "[triage]\nconsole_log = \"later\"\n")
-    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "triage.toml", isExplicit: true)))
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root /
+        "triage.toml", isExplicit: true)))
 
-    writeFile(root / "format.toml", "[output]\nformat = \"json\"\n")
-    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "format.toml", isExplicit: true)))
+    writeFile(root / "format.toml", "[output]\nformat = \"xml\"\n")
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root /
+        "format.toml", isExplicit: true)))
+
+    writeFile(root / "fail-on.toml", "fail_on = \"warn\"\n")
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root /
+        "fail-on.toml", isExplicit: true)))
 
 suite "branch hygiene rules":
   test "reports each hygiene rule with file line and column":
@@ -342,7 +421,8 @@ suite "branch hygiene rules":
     cleanDir(root)
     createDir(root)
     writeFile(root / "app.ts", "console.log('debug');\n")
-    let cfg = RuntimeConfig(rules: @[RuleOverride(ruleId: "console-log", severity: ruleSeverityOff, hasSeverity: true)])
+    let cfg = RuntimeConfig(rules: @[RuleOverride(ruleId: "console-log",
+        severity: ruleSeverityOff, hasSeverity: true)])
     let issues = scanBranchHygiene(testPlan(root, @["app.ts"]), cfg)
     check issues.hasIssue("console-log") == false
 
@@ -352,8 +432,10 @@ suite "branch hygiene rules":
     createDir(root)
     writeFile(root / "app.ts", "debugger;\n// @ts-ignore\nconst value: string = 1;\n")
     let cfg = RuntimeConfig(rules: @[
-      RuleOverride(ruleId: "debugger", severity: ruleSeverityOff, hasSeverity: true),
-      RuleOverride(ruleId: "ts-ignore", severity: ruleSeverityWarning, hasSeverity: true, triage: triageReview, hasTriage: true)
+      RuleOverride(ruleId: "debugger", severity: ruleSeverityOff,
+          hasSeverity: true),
+      RuleOverride(ruleId: "ts-ignore", severity: ruleSeverityWarning,
+          hasSeverity: true, triage: triageReview, hasTriage: true)
     ])
     let issues = scanBranchHygiene(testPlan(root, @["app.ts"]), cfg)
     check issues.hasIssue("debugger") == false
@@ -503,10 +585,11 @@ suite "cross-reference rules":
     let cfg = RuntimeConfig(
       envExampleFiles: @[".env.contract"],
       ignoredEnvVars: @["PUBLIC_URL"],
-      outputFormat: "text"
+      outputFormat: formatText
     )
 
-    let issues = scanCrossReference(testPlan(root, @["app.ts", ".env.contract"]), cfg)
+    let issues = scanCrossReference(testPlan(root, @["app.ts",
+        ".env.contract"]), cfg)
     check issues.hasIssue("env-drift") == false
 
   test "reports README command with missing script target":
@@ -516,7 +599,8 @@ suite "cross-reference rules":
     writeFile(root / "README.md", "```sh\nnpm run missing\n```\n")
     writeFile(root / "package.json", """{"scripts":{"test":"nimble test"}}""" & "\n")
 
-    let issues = scanCrossReference(testPlan(root, @["README.md", "package.json"]))
+    let issues = scanCrossReference(testPlan(root, @["README.md",
+        "package.json"]))
     check issues.hasIssue("readme-command-drift")
     let issue = issues.firstIssue("readme-command-drift")
     check issue.file == "README.md"
@@ -583,7 +667,8 @@ suite "cross-reference rules":
     createDir(root / "app")
     writeFile(root / "app" / "package.json", "{}\n")
     writeFile(root / "app" / "package-lock.json", "{}\n")
-    check run("git add app/package.json app/package-lock.json", root).exitCode == 0
+    check run("git add app/package.json app/package-lock.json",
+        root).exitCode == 0
     check run("git commit -m package", root).exitCode == 0
     writeFile(root / "app" / "package.json", """{"scripts":{"test":"true"}}""" & "\n")
 
@@ -608,7 +693,8 @@ suite "cross-reference rules":
     writeFile(root / "with-lock" / "package.json", "{}\n")
     writeFile(root / "with-lock" / "package-lock.json", "{}\n")
     writeFile(root / "no-lock" / "package.json", "{}\n")
-    check run("git add with-lock/package.json with-lock/package-lock.json no-lock/package.json", root).exitCode == 0
+    check run("git add with-lock/package.json with-lock/package-lock.json no-lock/package.json",
+        root).exitCode == 0
     check run("git commit -m packages", root).exitCode == 0
 
     let withLockIssues = scanCrossReference(ScanPlan(
@@ -676,7 +762,8 @@ suite "scan planning and files":
     check run("git add dist/ignored.ts kept.ts", root).exitCode == 0
     let context = RepoContext(root: root, isGit: true)
     let cfg = RuntimeConfig(ignorePaths: @["dist/**"])
-    let collected = collectCandidates(context, scanStaged, CliOptions(staged: true), cfg)
+    let collected = collectCandidates(context, scanStaged, CliOptions(
+        staged: true), cfg)
     check collected.files == @["kept.ts"]
 
   test "collects files since a real Git ref":
@@ -718,7 +805,8 @@ suite "command behavior":
     if fileExists(binary):
       removeFile(binary)
     cleanDir(cache)
-    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" & binary.quoteShell & " src/scour.nim")
+    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" &
+        binary.quoteShell & " src/scour.nim")
     check build.exitCode == 0
 
     check run(binary.quoteShell & " --help").exitCode == 0
@@ -744,7 +832,8 @@ suite "command behavior":
     if fileExists(binary):
       removeFile(binary)
     cleanDir(cache)
-    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" & binary.quoteShell & " src/scour.nim")
+    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" &
+        binary.quoteShell & " src/scour.nim")
     check build.exitCode == 0
 
     let root = getTempDir() / "scour-command-rules"
@@ -753,19 +842,22 @@ suite "command behavior":
 
     writeFile(root / "all.ts", "console.log('all');\n")
     let allResult = run(binary.quoteShell & " --all", root)
-    check allResult.exitCode == 0
-    check "error console-log all.ts:1:1 - console.log call found." in allResult.output
+    check allResult.exitCode == 1
+    check "error console-log all.ts:1:1 - console.log call found." in
+        allResult.output
 
     writeFile(root / "explicit.ts", "debugger;\n")
     let explicitResult = run(binary.quoteShell & " explicit.ts", root)
-    check explicitResult.exitCode == 0
-    check "error debugger explicit.ts:1:1 - Debugger statement found." in explicitResult.output
+    check explicitResult.exitCode == 1
+    check "error debugger explicit.ts:1:1 - Debugger statement found." in
+        explicitResult.output
 
     writeFile(root / "staged.ts", "it.only('focused', () => {});\n")
     check run("git add staged.ts", root).exitCode == 0
     let stagedResult = run(binary.quoteShell & " --staged", root)
-    check stagedResult.exitCode == 0
-    check "error focused-test staged.ts:1:1 - Focused test left in source." in stagedResult.output
+    check stagedResult.exitCode == 1
+    check "error focused-test staged.ts:1:1 - Focused test left in source." in
+        stagedResult.output
 
     check run("git add all.ts explicit.ts", root).exitCode == 0
     check run("git commit -m hygiene-fixtures", root).exitCode == 0
@@ -773,8 +865,9 @@ suite "command behavior":
     check run("git add since.ts", root).exitCode == 0
     check run("git commit -m since-fixture", root).exitCode == 0
     let sinceResult = run(binary.quoteShell & " --since HEAD~1", root)
-    check sinceResult.exitCode == 0
-    check "error skipped-test since.ts:1:1 - Skipped test left in source." in sinceResult.output
+    check sinceResult.exitCode == 1
+    check "error skipped-test since.ts:1:1 - Skipped test left in source." in
+        sinceResult.output
 
     writeFile(root / "scour.toml", "[rules]\nconsole-log = false\n")
     let disabledResult = run(binary.quoteShell & " --config scour.toml all.ts", root)
@@ -783,12 +876,25 @@ suite "command behavior":
 
     writeFile(root / "color.toml", "[output]\ncolor = \"always\"\n")
     let coloredResult = run(binary.quoteShell & " --config color.toml all.ts", root)
-    check coloredResult.exitCode == 0
+    check coloredResult.exitCode == 1
     check "\e[" in coloredResult.output
 
-    let overrideColorResult = run(binary.quoteShell & " --config color.toml --color never all.ts", root)
-    check overrideColorResult.exitCode == 0
+    let overrideColorResult = run(binary.quoteShell &
+        " --config color.toml --color never all.ts", root)
+    check overrideColorResult.exitCode == 1
     check "\e[" notin overrideColorResult.output
+
+    check run(binary.quoteShell & " --exit-zero all.ts", root).exitCode == 0
+    check run(binary.quoteShell & " --exit-zero --format xml all.ts",
+        root).exitCode == 2
+
+    writeFile(root / "ci.toml", "fail_on = \"warning\"\n[output]\nformat = \"json\"\n")
+    let configResult = run(binary.quoteShell & " --config ci.toml all.ts", root)
+    check configResult.exitCode == 1
+    check configResult.output.startsWith("{")
+    let cliOverride = run(binary.quoteShell &
+        " --config ci.toml --format github all.ts", root)
+    check cliOverride.output.startsWith("::error ")
 
   test "scan commands render repository hygiene issue ids":
     let binary = getTempDir() / "scour-test-bin-repo-rules"
@@ -796,7 +902,8 @@ suite "command behavior":
     if fileExists(binary):
       removeFile(binary)
     cleanDir(cache)
-    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" & binary.quoteShell & " src/scour.nim")
+    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" &
+        binary.quoteShell & " src/scour.nim")
     check build.exitCode == 0
 
     let root = getTempDir() / "scour-command-repo-rules"
@@ -809,7 +916,8 @@ suite "command behavior":
     writeFile(root / "app" / "pnpm-lock.yaml", "\n")
     writeFile(root / "Dockerfile", "FROM scratch\n")
     writeFile(root / "dist" / "index.js", "build output\n")
-    check run("git add app/package.json app/package-lock.json app/pnpm-lock.yaml Dockerfile dist/index.js", root).exitCode == 0
+    check run("git add app/package.json app/package-lock.json app/pnpm-lock.yaml Dockerfile dist/index.js",
+        root).exitCode == 0
 
     let result = run(binary.quoteShell & " --all", root)
     check result.exitCode == 0
@@ -823,7 +931,8 @@ suite "command behavior":
     if fileExists(binary):
       removeFile(binary)
     cleanDir(cache)
-    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" & binary.quoteShell & " src/scour.nim")
+    let build = run("nim c --nimcache:" & cache.quoteShell & " -o:" &
+        binary.quoteShell & " src/scour.nim")
     check build.exitCode == 0
 
     let root = getTempDir() / "scour-command-cross-rules"
@@ -836,12 +945,14 @@ suite "command behavior":
     writeFile(root / "README.md", "```sh\nnpm run missing\n```\n")
     writeFile(root / ".github" / "workflows" / "ci.yml", "jobs:\n  test:\n    steps:\n      - run: npm run missing\n")
     writeFile(root / "app.ts", "const token = process.env.API_TOKEN;\n")
-    check run("git add app/package.json app/package-lock.json README.md .github/workflows/ci.yml app.ts", root).exitCode == 0
+    check run("git add app/package.json app/package-lock.json README.md .github/workflows/ci.yml app.ts",
+        root).exitCode == 0
     check run("git commit -m cross-reference-fixtures", root).exitCode == 0
     writeFile(root / "app" / "package.json", """{"scripts":{"test":"true"}}""" & "\n")
 
-    let result = run(binary.quoteShell & " app.ts README.md .github/workflows/ci.yml app/package.json", root)
-    check result.exitCode == 0
+    let result = run(binary.quoteShell &
+        " app.ts README.md .github/workflows/ci.yml app/package.json", root)
+    check result.exitCode == 1
     check "error env-drift app.ts:1:15 - Environment variable API_TOKEN is used but absent from env example files." in result.output
     check "warning readme-command-drift README.md:2:1 - Command `npm run missing` references a missing script or task target." in result.output
     check "error ci-command-drift .github/workflows/ci.yml:4:14 - Command `npm run missing` references a missing script or task target." in result.output
