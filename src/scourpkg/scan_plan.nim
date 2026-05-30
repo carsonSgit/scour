@@ -11,6 +11,7 @@ type
     showHelp*: bool
     showVersion*: bool
     colorMode*: ColorMode
+    colorExplicit*: bool
     staged*: bool
     all*: bool
     sinceRef*: string

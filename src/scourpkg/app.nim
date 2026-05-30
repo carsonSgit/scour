@@ -17,7 +17,10 @@ proc runScour*(): int =
     let configDiscovery = discoverConfig(repoContext, options.configPath)
     let runtimeConfig = loadConfig(configDiscovery)
     let mode = resolveScanMode(options, repoContext)
-    let collected = collectCandidates(repoContext, mode, options)
+    var effectiveOptions = options
+    if not effectiveOptions.colorExplicit:
+      effectiveOptions.colorMode = runtimeConfig.outputColor
+    let collected = collectCandidates(repoContext, mode, effectiveOptions, runtimeConfig)
     let plan = ScanPlan(
       mode: mode,
       repo: repoContext,
@@ -27,8 +30,8 @@ proc runScour*(): int =
       candidates: collected.files
     )
 
-    let foundIssues = scanBranchHygiene(plan, runtimeConfig) & scanRepoHygiene(plan) & scanCrossReference(plan)
-    stdout.write(renderIssues(foundIssues, options))
+    let foundIssues = scanBranchHygiene(plan, runtimeConfig) & scanRepoHygiene(plan, runtimeConfig) & scanCrossReference(plan, runtimeConfig)
+    stdout.write(renderIssues(foundIssues, effectiveOptions))
     0
   except FatalUserError as error:
     stderr.writeLine("Fatal: " & error.msg)

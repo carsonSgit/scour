@@ -32,6 +32,7 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
       inc index
       if index >= args.len:
         fatal("--color requires auto, always, or never")
+      options.colorExplicit = true
       case args[index]
       of "auto":
         options.colorMode = colorAuto

@@ -1,10 +1,8 @@
 import algorithm, json, os, osproc, sequtils, strutils, tables
 
-import ../issues, ../scan_plan
+import ../config, ../issues, ../scan_plan
 
 const
-  EnvExampleNames = [".env.example", ".env.sample", ".env.template", ".env.defaults"]
-  IgnoredEnvNames = ["NODE_ENV", "CI", "PATH", "HOME", "USER", "SHELL", "PWD", "OLDPWD"]
   NodeLockfiles = [
     "package-lock.json",
     "npm-shrinkwrap.json",
@@ -139,9 +137,9 @@ proc packageWarning(file: string): Issue =
     "package.json changed without its existing Node lockfile."
   )
 
-proc loadEnvNames(root: string; files: openArray[string]): Table[string, bool] =
+proc loadEnvNames(root: string; files: openArray[string]; exampleNames: openArray[string]): Table[string, bool] =
   for file in files:
-    if file.fileName() notin EnvExampleNames:
+    if file.fileName() notin exampleNames:
       continue
     for line in safeRead(root, file).splitLines():
       let trimmed = line.strip()
@@ -161,9 +159,10 @@ proc addEnvIssue(
     result: var seq[Issue];
     file, text, name: string;
     index: int;
-    documented: Table[string, bool]
+    documented: Table[string, bool];
+    ignoredNames: openArray[string]
 ) =
-  if name.len == 0 or name in IgnoredEnvNames or documented.hasKey(name):
+  if name.len == 0 or name in ignoredNames or documented.hasKey(name):
     return
   let location = text.lineColumn(index)
   result.add(envError(file, location.line, location.column, name))
@@ -171,7 +170,8 @@ proc addEnvIssue(
 proc scanPropertyEnv(
     result: var seq[Issue];
     file, text, prefix: string;
-    documented: Table[string, bool]
+    documented: Table[string, bool];
+    ignoredNames: openArray[string]
 ) =
   var searchFrom = 0
   while true:
@@ -183,13 +183,14 @@ proc scanPropertyEnv(
     if nameStart < text.len and text[nameStart].isEnvStart():
       while nameEnd < text.len and text[nameEnd].isEnvPart():
         inc nameEnd
-      result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index, documented)
+      result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index, documented, ignoredNames)
     searchFrom = max(index + 1, nameEnd)
 
 proc scanQuotedEnv(
     result: var seq[Issue];
     file, text, prefix: string;
-    documented: Table[string, bool]
+    documented: Table[string, bool];
+    ignoredNames: openArray[string]
 ) =
   var searchFrom = 0
   while true:
@@ -207,23 +208,23 @@ proc scanQuotedEnv(
       while nameEnd < text.len and text[nameEnd].isEnvPart():
         inc nameEnd
       if nameEnd < text.len and text[nameEnd] == quote:
-        result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index, documented)
+        result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index, documented, ignoredNames)
     searchFrom = max(index + 1, nameEnd)
 
-proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[string]) =
-  let documented = loadEnvNames(plan.repo.root, files)
+proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[string]; runtimeConfig: RuntimeConfig) =
+  let documented = loadEnvNames(plan.repo.root, files, runtimeConfig.envExampleFiles)
   for candidate in plan.candidates:
     let text = safeRead(plan.repo.root, candidate)
     if text.len == 0:
       continue
-    result.scanPropertyEnv(candidate, text, "process.env.", documented)
-    result.scanPropertyEnv(candidate, text, "import.meta.env.", documented)
-    result.scanQuotedEnv(candidate, text, "Deno.env.get(", documented)
-    result.scanQuotedEnv(candidate, text, "os.Getenv(", documented)
-    result.scanQuotedEnv(candidate, text, "std::env::var(", documented)
-    result.scanQuotedEnv(candidate, text, "System.getenv(", documented)
-    result.scanQuotedEnv(candidate, text, "ENV[", documented)
-    result.scanQuotedEnv(candidate, text, "getenv(", documented)
+    result.scanPropertyEnv(candidate, text, "process.env.", documented, runtimeConfig.ignoredEnvVars)
+    result.scanPropertyEnv(candidate, text, "import.meta.env.", documented, runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "Deno.env.get(", documented, runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "os.Getenv(", documented, runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "std::env::var(", documented, runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "System.getenv(", documented, runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "ENV[", documented, runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "getenv(", documented, runtimeConfig.ignoredEnvVars)
 
 proc addPackageScripts(inventory: var CommandInventory; root, file: string) =
   try:
@@ -414,10 +415,11 @@ proc scanPackageLockDrift(result: var seq[Issue]; plan: ScanPlan; files: openArr
     if found.len == 1 and not candidateSet.hasKey(found[0]):
       result.add(packageWarning(file))
 
-proc scanCrossReference*(plan: ScanPlan): seq[Issue] =
+proc scanCrossReference*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Issue] =
   let files = repositoryFiles(plan)
   let inventory = commandInventory(plan.repo.root, files)
-  result.scanEnvDrift(plan, files)
+  result.scanEnvDrift(plan, files, runtimeConfig)
   result.scanReadmeCommandDrift(plan, inventory)
   result.scanCiCommandDrift(plan, inventory)
   result.scanPackageLockDrift(plan, files)
+  result = result.applyRuleOverrides(runtimeConfig)

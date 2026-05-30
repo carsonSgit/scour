@@ -66,6 +66,14 @@ proc firstIssue(issues: seq[Issue]; ruleId: string): Issue =
       return issue
   Issue()
 
+proc hasSeverityOverride(config: RuntimeConfig; ruleId: string; severity: RuleSeverity): bool =
+  let setting = config.ruleOverride(ruleId)
+  setting.hasSeverity and setting.severity == severity
+
+proc hasTriageOverride(config: RuntimeConfig; ruleId: string; triage: TriageLevel): bool =
+  let setting = config.ruleOverride(ruleId)
+  setting.hasTriage and setting.triage == triage
+
 suite "CLI parser":
   test "parses supported flags and paths":
     let options = parseCliArgs(@["--config", "scour.toml", "src"])
@@ -190,7 +198,11 @@ suite "repo and config discovery":
 suite "config loading":
   test "defaults all rule settings on when no config is discovered":
     let loaded = loadConfig(ConfigDiscovery(path: "", isExplicit: false))
-    check loaded.rules.consoleLog == true
+    check loaded.ruleIsOff("console-log") == false
+    check loaded.envExampleFiles == @[".env.example", ".env.sample", ".env.template", ".env.defaults"]
+    check "NODE_ENV" in loaded.ignoredEnvVars
+    check loaded.outputColor == colorAuto
+    check loaded.outputFormat == "text"
 
   test "loads discovered console-log rule setting":
     let root = getTempDir() / "scour-runtime-config"
@@ -198,7 +210,47 @@ suite "config loading":
     createDir(root)
     writeFile(root / "scour.toml", "[rules]\nconsole-log = false\n")
     let discovery = ConfigDiscovery(path: root / "scour.toml", isExplicit: false)
-    check loadConfig(discovery).rules.consoleLog == false
+    check loadConfig(discovery).ruleIsOff("console-log")
+
+  test "loads PRD-style config sections and underscore rule keys":
+    let root = getTempDir() / "scour-prd-config"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "scour.toml", [
+      "[scan]",
+      "max_file_size = \"1KB\"",
+      "",
+      "[output]",
+      "format = \"text\"",
+      "color = \"never\"",
+      "",
+      "[rules]",
+      "console_log = \"warning\"",
+      "ts_ignore = \"off\"",
+      "",
+      "[triage]",
+      "console_log = \"review\"",
+      "",
+      "[ignore]",
+      "paths = [",
+      "  \"dist/**\",",
+      "  \"vendor\"",
+      "]",
+      "",
+      "[env]",
+      "example_files = [\".env.contract\"]",
+      "ignored_vars = [\"NODE_ENV\", \"PUBLIC_URL\"]"
+    ].join("\n"))
+
+    let loaded = loadConfig(ConfigDiscovery(path: root / "scour.toml", isExplicit: false))
+    check loaded.maxFileSize == 1024
+    check loaded.outputColor == colorNever
+    check loaded.hasSeverityOverride("console-log", ruleSeverityWarning)
+    check loaded.hasTriageOverride("console-log", triageReview)
+    check loaded.ruleIsOff("ts-ignore")
+    check loaded.ignorePaths == @["dist/**", "vendor"]
+    check loaded.envExampleFiles == @[".env.contract"]
+    check loaded.ignoredEnvVars == @["NODE_ENV", "PUBLIC_URL"]
 
   test "rejects invalid explicit config syntax":
     let root = getTempDir() / "scour-invalid-config"
@@ -207,6 +259,26 @@ suite "config loading":
     writeFile(root / "scour.toml", "[rules\n")
     let discovery = ConfigDiscovery(path: root / "scour.toml", isExplicit: true)
     expectFatal(proc() = discard loadConfig(discovery))
+
+  test "rejects invalid config section key severity triage and output format":
+    let root = getTempDir() / "scour-invalid-config-values"
+    cleanDir(root)
+    createDir(root)
+
+    writeFile(root / "section.toml", "[custom_patterns]\nfoo = \"bar\"\n")
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "section.toml", isExplicit: true)))
+
+    writeFile(root / "key.toml", "[rules]\nunknown_rule = \"error\"\n")
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "key.toml", isExplicit: true)))
+
+    writeFile(root / "severity.toml", "[rules]\nconsole_log = \"warn\"\n")
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "severity.toml", isExplicit: true)))
+
+    writeFile(root / "triage.toml", "[triage]\nconsole_log = \"later\"\n")
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "triage.toml", isExplicit: true)))
+
+    writeFile(root / "format.toml", "[output]\nformat = \"json\"\n")
+    expectFatal(proc() = discard loadConfig(ConfigDiscovery(path: root / "format.toml", isExplicit: true)))
 
 suite "branch hygiene rules":
   test "reports each hygiene rule with file line and column":
@@ -270,9 +342,24 @@ suite "branch hygiene rules":
     cleanDir(root)
     createDir(root)
     writeFile(root / "app.ts", "console.log('debug');\n")
-    let cfg = RuntimeConfig(rules: RuleSettings(consoleLog: false))
+    let cfg = RuntimeConfig(rules: @[RuleOverride(ruleId: "console-log", severity: ruleSeverityOff, hasSeverity: true)])
     let issues = scanBranchHygiene(testPlan(root, @["app.ts"]), cfg)
     check issues.hasIssue("console-log") == false
+
+  test "disables any rule and applies severity and triage overrides":
+    let root = getTempDir() / "scour-rule-overrides"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", "debugger;\n// @ts-ignore\nconst value: string = 1;\n")
+    let cfg = RuntimeConfig(rules: @[
+      RuleOverride(ruleId: "debugger", severity: ruleSeverityOff, hasSeverity: true),
+      RuleOverride(ruleId: "ts-ignore", severity: ruleSeverityWarning, hasSeverity: true, triage: triageReview, hasTriage: true)
+    ])
+    let issues = scanBranchHygiene(testPlan(root, @["app.ts"]), cfg)
+    check issues.hasIssue("debugger") == false
+    let tsIgnore = issues.firstIssue("ts-ignore")
+    check tsIgnore.severity == severityWarning
+    check tsIgnore.triage == triageReview
 
   test "scopes JavaScript and TypeScript rules to matching files":
     let root = getTempDir() / "scour-rule-scope"
@@ -405,6 +492,21 @@ suite "cross-reference rules":
     writeFile(root / "app.ts", "const mode = process.env.NODE_ENV;\nconst token = process.env.API_TOKEN;\n")
 
     let issues = scanCrossReference(testPlan(root, @["app.ts", ".env.example"]))
+    check issues.hasIssue("env-drift") == false
+
+  test "uses configured env example files and ignored env vars":
+    let root = getTempDir() / "scour-env-config"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / ".env.contract", "API_TOKEN=\n")
+    writeFile(root / "app.ts", "const mode = process.env.PUBLIC_URL;\nconst token = process.env.API_TOKEN;\n")
+    let cfg = RuntimeConfig(
+      envExampleFiles: @[".env.contract"],
+      ignoredEnvVars: @["PUBLIC_URL"],
+      outputFormat: "text"
+    )
+
+    let issues = scanCrossReference(testPlan(root, @["app.ts", ".env.contract"]), cfg)
     check issues.hasIssue("env-drift") == false
 
   test "reports README command with missing script target":
@@ -540,6 +642,20 @@ suite "scan planning and files":
     let collected = collectCandidates(context, scanExplicitPaths, options)
     check collected.files == @["src/a.nim", "top.txt"]
 
+  test "applies ignored paths and max file size to explicit candidates":
+    let root = getTempDir() / "scour-filtered-candidates"
+    cleanDir(root)
+    createDir(root / "dist")
+    createDir(root / "src")
+    writeFile(root / "dist" / "ignored.ts", "console.log('ignored');\n")
+    writeFile(root / "src" / "small.ts", "console.log('small');\n")
+    writeFile(root / "src" / "large.ts", repeat("x", 80))
+    let context = RepoContext(root: root, isGit: false)
+    let options = CliOptions(explicitPaths: @["dist", "src"])
+    let cfg = RuntimeConfig(ignorePaths: @["dist/**"], maxFileSize: 40)
+    let collected = collectCandidates(context, scanExplicitPaths, options, cfg)
+    check collected.files == @["src/small.ts"]
+
   test "collects staged files from real Git":
     let root = getTempDir() / "scour-staged"
     cleanDir(root)
@@ -549,6 +665,19 @@ suite "scan planning and files":
     let context = RepoContext(root: root, isGit: true)
     let collected = collectCandidates(context, scanStaged, CliOptions(staged: true))
     check collected.files == @["staged.txt"]
+
+  test "applies ignored paths to staged files":
+    let root = getTempDir() / "scour-staged-ignore"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "dist")
+    writeFile(root / "dist" / "ignored.ts", "console.log('ignored');\n")
+    writeFile(root / "kept.ts", "console.log('kept');\n")
+    check run("git add dist/ignored.ts kept.ts", root).exitCode == 0
+    let context = RepoContext(root: root, isGit: true)
+    let cfg = RuntimeConfig(ignorePaths: @["dist/**"])
+    let collected = collectCandidates(context, scanStaged, CliOptions(staged: true), cfg)
+    check collected.files == @["kept.ts"]
 
   test "collects files since a real Git ref":
     let root = getTempDir() / "scour-since"
@@ -562,6 +691,25 @@ suite "scan planning and files":
     let collected = collectCandidates(context, scanChanged, options)
     check collected.baseRef == "HEAD~1"
     check collected.files == @["changed.txt"]
+
+  test "applies ignored paths to changed files":
+    let root = getTempDir() / "scour-changed-ignore"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "dist")
+    writeFile(root / "dist" / "ignored.ts", "old\n")
+    writeFile(root / "kept.ts", "old\n")
+    check run("git add dist/ignored.ts kept.ts", root).exitCode == 0
+    check run("git commit -m baseline", root).exitCode == 0
+    writeFile(root / "dist" / "ignored.ts", "console.log('ignored');\n")
+    writeFile(root / "kept.ts", "console.log('kept');\n")
+    check run("git add dist/ignored.ts kept.ts", root).exitCode == 0
+    check run("git commit -m changed", root).exitCode == 0
+    let context = RepoContext(root: root, isGit: true)
+    let options = CliOptions(sinceRef: "HEAD~1")
+    let cfg = RuntimeConfig(ignorePaths: @["dist/**"])
+    let collected = collectCandidates(context, scanChanged, options, cfg)
+    check collected.files == @["kept.ts"]
 
 suite "command behavior":
   test "help version invalid and basic scan commands":
@@ -632,6 +780,15 @@ suite "command behavior":
     let disabledResult = run(binary.quoteShell & " --config scour.toml all.ts", root)
     check disabledResult.exitCode == 0
     check disabledResult.output == "Scour passed. No failing issues found.\n"
+
+    writeFile(root / "color.toml", "[output]\ncolor = \"always\"\n")
+    let coloredResult = run(binary.quoteShell & " --config color.toml all.ts", root)
+    check coloredResult.exitCode == 0
+    check "\e[" in coloredResult.output
+
+    let overrideColorResult = run(binary.quoteShell & " --config color.toml --color never all.ts", root)
+    check overrideColorResult.exitCode == 0
+    check "\e[" notin overrideColorResult.output
 
   test "scan commands render repository hygiene issue ids":
     let binary = getTempDir() / "scour-test-bin-repo-rules"
