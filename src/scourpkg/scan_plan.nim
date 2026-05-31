@@ -15,7 +15,7 @@ type
     scanChanged, scanStaged, scanAll, scanExplicitPaths
 
   CommandMode* = enum
-    commandScan, commandRules, commandExplain
+    commandScan, commandTriage, commandRules, commandExplain
 
   CliOptions* = object
     showHelp*: bool
