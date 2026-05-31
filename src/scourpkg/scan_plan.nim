@@ -14,6 +14,9 @@ type
   ScanMode* = enum
     scanChanged, scanStaged, scanAll, scanExplicitPaths
 
+  CommandMode* = enum
+    commandScan, commandRules, commandExplain
+
   CliOptions* = object
     showHelp*: bool
     showVersion*: bool
@@ -29,6 +32,8 @@ type
     sinceRef*: string
     configPath*: string
     explicitPaths*: seq[string]
+    command*: CommandMode
+    explainRuleId*: string
 
   RepoContext* = object
     root*: string
