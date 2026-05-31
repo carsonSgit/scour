@@ -12,6 +12,8 @@ CLI args
        --format <text|json|github>
        --fail-on <error|warning|info>
        --exit-zero
+       --color <auto|always|never>
+       triage
        rules
        explain <rule>
        paths...
@@ -87,6 +89,7 @@ CLI args
        text: pass message, issue rows, suggestions, and summary
        json: stable summary, triage counts, and issue fields
        github: workflow annotations, no output for a clean scan
+       triage: deterministic non-empty groups followed by triage counts
   -> choose exit code
        fatal arguments or config: 2
        findings at or above failure threshold: 1
