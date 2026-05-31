@@ -1,5 +1,5 @@
 import cli, config, errors, files, help, issues, output, repo, rule_catalog,
-    rule_output, scan_plan
+    rule_output, scan_plan, triage_output
 import rules/branch_hygiene
 import rules/cross_reference
 import rules/repo_hygiene
@@ -25,13 +25,15 @@ proc runScour*(): int =
       stdout.write(renderExplanation(findRule(options.explainRuleId),
           runtimeConfig))
       return 0
-    of commandScan:
+    of commandScan, commandTriage:
       discard
     let mode = resolveScanMode(options, repoContext)
     var effectiveOptions = options
     if not effectiveOptions.colorExplicit:
       effectiveOptions.colorMode = runtimeConfig.outputColor
-    if not effectiveOptions.formatExplicit:
+    if options.command == commandTriage:
+      effectiveOptions.outputFormat = formatText
+    elif not effectiveOptions.formatExplicit:
       effectiveOptions.outputFormat = runtimeConfig.outputFormat
     if not effectiveOptions.failOnExplicit:
       effectiveOptions.failOn = runtimeConfig.failOn
@@ -47,7 +49,10 @@ proc runScour*(): int =
 
     let foundIssues = scanBranchHygiene(plan, runtimeConfig) & scanRepoHygiene(
         plan, runtimeConfig) & scanCrossReference(plan, runtimeConfig)
-    stdout.write(renderIssues(foundIssues, effectiveOptions))
+    if options.command == commandTriage:
+      stdout.write(renderTriage(foundIssues))
+    else:
+      stdout.write(renderIssues(foundIssues, effectiveOptions))
     if not effectiveOptions.exitZero and foundIssues.hasFailingIssues(
         effectiveOptions.failOn):
       1

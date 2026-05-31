@@ -52,6 +52,26 @@ format = "github"
 
 Explicit CLI flags override config values.
 
+## Triage
+
+Group findings into a deterministic fix-order report while preserving normal
+scan selectors and exit codes:
+
+```sh
+scour triage --all
+scour triage --staged
+scour triage --since main
+```
+
+`triage` uses its own text renderer, so it rejects explicit `--format` flags.
+
+## Regression Suite
+
+`nimble test` builds Scour and runs the real binary against committed clean and
+dirty fixture repositories. Exact snapshots cover text, JSON, GitHub
+annotations, triage output, staged changes, ref comparisons, explicit paths,
+config overrides, thresholds, and exit-zero behavior.
+
 ## Rule Discovery
 
 List implemented rules or explain one rule without running a scan:
