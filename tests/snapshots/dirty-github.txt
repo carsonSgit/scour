@@ -1,0 +1,12 @@
+::error file=app.ts,title=merge-conflict,line=1,col=1::Merge conflict marker found.
+::error file=app.ts,title=debugger,line=2,col=1::Debugger statement found.
+::error file=app.ts,title=focused-test,line=3,col=1::Focused test left in source.
+::error file=app.ts,title=skipped-test,line=4,col=1::Skipped test left in source.
+::warning file=app.ts,title=console-log,line=5,col=1::console.log call found.
+::warning file=app.ts,title=ts-ignore,line=6,col=4::@ts-ignore suppression found.
+::warning file=package.json,title=duplicate-lockfiles::Multiple package manager lockfiles found in the same package root.
+::warning file=Dockerfile,title=dockerignore-missing::Dockerfile has no same-directory .dockerignore.
+::warning file=dist/generated.js,title=generated-files::Generated output is tracked in the repository.
+::error file=app.ts,title=env-drift,line=7,col=15::Environment variable MISSING_TOKEN is used but absent from env example files.
+::warning file=README.md,title=readme-command-drift,line=4,col=1::Command `npm run missing` references a missing script or task target.
+::error file=.github/workflows/ci.yml,title=ci-command-drift,line=4,col=14::Command `npm run missing` references a missing script or task target.
