@@ -1,6 +1,6 @@
 import os, strutils
 
-import errors, issues, scan_plan
+import errors, issues, rule_catalog, scan_plan
 
 proc parseCliArgs*(args: seq[string]): CliOptions =
   var options: CliOptions
@@ -71,7 +71,16 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
     else:
       if arg.startsWith("-"):
         fatal("unknown argument: " & arg)
-      options.explicitPaths.add(arg)
+      if options.command == commandExplain and options.explainRuleId.len == 0:
+        options.explainRuleId = arg
+      elif options.command != commandScan:
+        fatal("unexpected argument for discovery command: " & arg)
+      elif arg == "rules":
+        options.command = commandRules
+      elif arg == "explain":
+        options.command = commandExplain
+      else:
+        options.explicitPaths.add(arg)
     inc index
 
   let modeCount =
@@ -82,6 +91,18 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
 
   if modeCount > 1:
     fatal("--staged, --since, --all, and explicit paths cannot be combined")
+
+  if options.command == commandExplain:
+    if options.explainRuleId.len == 0:
+      fatal("explain requires a rule ID")
+    if options.explainRuleId.contains('_') or not validRuleId(
+        options.explainRuleId):
+      fatal("unknown rule ID: " & options.explainRuleId)
+
+  if options.command != commandScan and (
+      options.staged or options.all or options.sinceRef.len > 0 or
+      options.failOnExplicit or options.exitZero or options.colorExplicit):
+    fatal("scan-only options cannot be used with discovery commands")
 
   options
 
