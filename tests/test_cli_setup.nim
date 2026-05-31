@@ -8,6 +8,8 @@ import ../src/scourpkg/issues
 import ../src/scourpkg/github_output
 import ../src/scourpkg/json_output
 import ../src/scourpkg/repo
+import ../src/scourpkg/rule_catalog
+import ../src/scourpkg/rule_output
 import ../src/scourpkg/rules/branch_hygiene
 import ../src/scourpkg/rules/cross_reference
 import ../src/scourpkg/rules/repo_hygiene
@@ -111,6 +113,41 @@ suite "CLI parser":
   test "rejects conflicting scan modes":
     expectFatal(proc() = discard parseCliArgs(@["--staged", "--all"]))
     expectFatal(proc() = discard parseCliArgs(@["--since", "main", "src"]))
+
+  test "parses discovery commands":
+    check parseCliArgs(@["rules"]).command == commandRules
+    let explain = parseCliArgs(@["--config", "scour.toml", "explain",
+        "console-log"])
+    check explain.command == commandExplain
+    check explain.explainRuleId == "console-log"
+
+  test "rejects invalid discovery commands":
+    expectFatal(proc() = discard parseCliArgs(@["explain"]))
+    expectFatal(proc() = discard parseCliArgs(@["explain", "missing-rule"]))
+    expectFatal(proc() = discard parseCliArgs(@["explain", "console_log"]))
+    expectFatal(proc() = discard parseCliArgs(@["rules", "extra"]))
+    expectFatal(proc() = discard parseCliArgs(@["--all", "rules"]))
+    expectFatal(proc() = discard parseCliArgs(@["--fail-on", "warning",
+        "rules"]))
+
+suite "rule catalog":
+  test "contains canonical rules in stable alphabetical order":
+    let rules = sortedRules()
+    check rules.len == 13
+    for index in 1 ..< rules.len:
+      check rules[index - 1].id < rules[index].id
+    check validRuleId("console-log")
+    check not validRuleId("console_log")
+
+  test "renders defaults and effective overrides":
+    let config = RuntimeConfig(rules: @[
+      RuleOverride(ruleId: "console-log", severity: ruleSeverityOff,
+        hasSeverity: true, triage: triageCleanup, hasTriage: true)
+    ])
+    check "console-log  off  cleanup\n" in renderRules(config)
+    let explanation = renderExplanation(findRule("console-log"), config)
+    check "Severity: off\n" in explanation
+    check "Triage: cleanup\n" in explanation
 
 suite "issue summaries":
   test "summarizes empty issue lists":
@@ -813,6 +850,11 @@ suite "command behavior":
     check run(binary.quoteShell & " --version").exitCode == 0
     check run(binary.quoteShell & " --not-a-flag").exitCode == 2
     check run(binary.quoteShell & " --color sometimes").exitCode == 2
+    check run(binary.quoteShell & " rules").output.contains(
+        "console-log  warning  review")
+    check run(binary.quoteShell & " explain console-log").output.contains(
+        "Rule: console-log\n")
+    check run(binary.quoteShell & " explain missing-rule").exitCode == 2
 
     let root = getTempDir() / "scour-command"
     cleanDir(root)
@@ -825,6 +867,15 @@ suite "command behavior":
     check run("git add new.txt", root).exitCode == 0
     check run(binary.quoteShell & " --staged", root).exitCode == 0
     check run(binary.quoteShell & " --since HEAD", root).exitCode == 0
+    writeFile(root / "scour.toml",
+        "[rules]\nconsole-log = \"off\"\n[triage]\nconsole-log = \"cleanup\"\n")
+    let configuredRules = run(binary.quoteShell & " --config scour.toml rules",
+        root)
+    check "console-log  off  cleanup" in configuredRules.output
+    let configuredExplain = run(binary.quoteShell &
+        " --config scour.toml explain console-log", root)
+    check "Severity: off" in configuredExplain.output
+    check "Triage: cleanup" in configuredExplain.output
 
   test "scan commands render hygiene issues across modes":
     let binary = getTempDir() / "scour-test-bin-rules"
@@ -842,8 +893,8 @@ suite "command behavior":
 
     writeFile(root / "all.ts", "console.log('all');\n")
     let allResult = run(binary.quoteShell & " --all", root)
-    check allResult.exitCode == 1
-    check "error console-log all.ts:1:1 - console.log call found." in
+    check allResult.exitCode == 0
+    check "warning console-log all.ts:1:1 - console.log call found." in
         allResult.output
 
     writeFile(root / "explicit.ts", "debugger;\n")
@@ -876,12 +927,12 @@ suite "command behavior":
 
     writeFile(root / "color.toml", "[output]\ncolor = \"always\"\n")
     let coloredResult = run(binary.quoteShell & " --config color.toml all.ts", root)
-    check coloredResult.exitCode == 1
+    check coloredResult.exitCode == 0
     check "\e[" in coloredResult.output
 
     let overrideColorResult = run(binary.quoteShell &
         " --config color.toml --color never all.ts", root)
-    check overrideColorResult.exitCode == 1
+    check overrideColorResult.exitCode == 0
     check "\e[" notin overrideColorResult.output
 
     check run(binary.quoteShell & " --exit-zero all.ts", root).exitCode == 0
@@ -894,7 +945,7 @@ suite "command behavior":
     check configResult.output.startsWith("{")
     let cliOverride = run(binary.quoteShell &
         " --config ci.toml --format github all.ts", root)
-    check cliOverride.output.startsWith("::error ")
+    check cliOverride.output.startsWith("::warning ")
 
   test "scan commands render repository hygiene issue ids":
     let binary = getTempDir() / "scour-test-bin-repo-rules"
