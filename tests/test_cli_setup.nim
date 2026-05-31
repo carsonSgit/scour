@@ -870,6 +870,38 @@ suite "scan planning and files":
     check collected.files == @["kept.ts"]
 
 suite "command behavior":
+  test "fixture repositories lock clean dirty formats and scan modes":
+    let binary = fixtureBinary()
+    let clean = getTempDir() / "scour-fixture-clean"
+    initFixtureRepo("clean", clean)
+    checkSnapshot(run(binary.quoteShell & " --all --color never", clean),
+        "clean-text.txt", 0)
+
+    let dirty = getTempDir() / "scour-fixture-dirty"
+    initFixtureRepo("dirty", dirty)
+    checkSnapshot(run(binary.quoteShell & " --all --color never", dirty),
+        "dirty-text.txt", 1)
+    checkSnapshot(run(binary.quoteShell & " --all --format json", dirty),
+        "dirty-json.txt", 1)
+    checkSnapshot(run(binary.quoteShell & " --all --format github", dirty),
+        "dirty-github.txt", 1)
+    check run(binary.quoteShell & " --all --fail-on warning", dirty).exitCode == 1
+    check run(binary.quoteShell & " --all --exit-zero", dirty).exitCode == 0
+
+    writeFile(dirty / "overlay.ts", "console.log('overlay');\n")
+    check run("git add overlay.ts", dirty).exitCode == 0
+    check "console-log overlay.ts:1:1" in run(binary.quoteShell & " --staged",
+        dirty).output
+    check run("git commit -m overlay", dirty).exitCode == 0
+    check "console-log overlay.ts:1:1" in run(binary.quoteShell &
+        " --since HEAD~1", dirty).output
+    check "debugger app.ts:2:1" in run(binary.quoteShell & " app.ts",
+        dirty).output
+    writeFile(dirty / "scour.toml",
+        "[rules]\nconsole-log = \"off\"\n")
+    check "console-log overlay.ts" notin run(binary.quoteShell &
+        " --config scour.toml overlay.ts", dirty).output
+
   test "help version invalid and basic scan commands":
     let binary = getTempDir() / "scour-test-bin"
     let cache = getTempDir() / "scour-test-nimcache"
