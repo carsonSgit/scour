@@ -12,6 +12,8 @@ CLI args
        --format <text|json|github>
        --fail-on <error|warning|info>
        --exit-zero
+       rules
+       explain <rule>
        paths...
        reject conflicting scan modes
   -> resolve repo
@@ -23,6 +25,10 @@ CLI args
        .scour.toml
        .config/scour.toml
        none
+  -> discovery command?
+       rules: render every catalog entry with effective severity and triage
+       explain <rule>: render catalog metadata and effective config values
+       exit before scan-mode selection and candidate collection
   -> choose scan mode
        explicit paths
        staged

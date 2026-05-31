@@ -5,6 +5,8 @@ scour 0.1.0
 
 Usage:
   scour [options] [paths...]
+  scour [--config <path>] rules
+  scour [--config <path>] explain <rule>
 
 Options:
   --help           Show this help text.
