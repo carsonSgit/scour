@@ -15,6 +15,7 @@ import ../src/scourpkg/rules/cross_reference
 import ../src/scourpkg/rules/repo_hygiene
 import ../src/scourpkg/scan_plan
 import ../src/scourpkg/text_output
+import ../src/scourpkg/triage_output
 
 proc expectFatal(body: proc()) =
   var raised = false
@@ -154,6 +155,8 @@ suite "CLI parser":
         "console-log"])
     check explain.command == commandExplain
     check explain.explainRuleId == "console-log"
+    check parseCliArgs(@["triage", "--all"]).command == commandTriage
+    expectFatal(proc() = discard parseCliArgs(@["triage", "--format", "json"]))
 
   test "rejects invalid discovery commands":
     expectFatal(proc() = discard parseCliArgs(@["explain"]))
@@ -301,6 +304,18 @@ suite "text output":
         file: "a.nim", message: "Bad.")]
     check "\e[" notin renderIssues(issues, colorNever)
     check "\e[" in renderIssues(issues, colorAlways)
+
+  test "renders grouped triage in deterministic order":
+    let output = renderTriage(@[
+      Issue(ruleId: "review", severity: severityWarning,
+        triage: triageReview, file: "b.ts", message: "Review."),
+      Issue(ruleId: "block", severity: severityError,
+        triage: triageBlocker, file: "a.ts", line: 2, message: "Block.")
+    ])
+    check output.startsWith("scour triage found 2 issue(s)\n\nBlockers\n")
+    check output.find("Blockers") < output.find("Needs Review")
+    check "  1 blocker(s)\n" in output
+    check "  1 needs-review\n" in output
 
 suite "repo and config discovery":
   test "uses current directory outside Git":
@@ -887,6 +902,9 @@ suite "command behavior":
         "dirty-github.txt", 1)
     check run(binary.quoteShell & " --all --fail-on warning", dirty).exitCode == 1
     check run(binary.quoteShell & " --all --exit-zero", dirty).exitCode == 0
+    checkSnapshot(run(binary.quoteShell & " triage --all", dirty),
+        "dirty-triage.txt", 1)
+    check run(binary.quoteShell & " triage --format json", dirty).exitCode == 2
 
     writeFile(dirty / "overlay.ts", "console.log('overlay');\n")
     check run("git add overlay.ts", dirty).exitCode == 0

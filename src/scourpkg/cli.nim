@@ -79,6 +79,8 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
         options.command = commandRules
       elif arg == "explain":
         options.command = commandExplain
+      elif arg == "triage":
+        options.command = commandTriage
       else:
         options.explicitPaths.add(arg)
     inc index
@@ -99,7 +101,10 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
         options.explainRuleId):
       fatal("unknown rule ID: " & options.explainRuleId)
 
-  if options.command != commandScan and (
+  if options.command == commandTriage and options.formatExplicit:
+    fatal("--format cannot be used with triage")
+
+  if options.command notin {commandScan, commandTriage} and (
       options.staged or options.all or options.sinceRef.len > 0 or
       options.failOnExplicit or options.exitZero or options.colorExplicit):
     fatal("scan-only options cannot be used with discovery commands")
