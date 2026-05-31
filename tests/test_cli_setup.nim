@@ -52,6 +52,40 @@ proc cleanDir(path: string) =
   if dirExists(path):
     removeDir(path)
 
+proc copyFixture(name, root: string) =
+  let source = getCurrentDir() / "tests" / "fixtures" / name
+  for path in walkDirRec(source, relative = true):
+    let destination = root / path
+    createDir(destination.parentDir())
+    copyFile(source / path, destination)
+
+proc initFixtureRepo(name, root: string) =
+  cleanDir(root)
+  createDir(root)
+  copyFixture(name, root)
+  check run("git init", root).exitCode == 0
+  check run("git config user.email test@example.com", root).exitCode == 0
+  check run("git config user.name Test", root).exitCode == 0
+  check run("git add .", root).exitCode == 0
+  check run("git commit -m fixture", root).exitCode == 0
+
+proc fixtureBinary(): string =
+  result = getTempDir() / "scour-fixture-bin"
+  if fileExists(result):
+    return
+  let cache = getTempDir() / "scour-fixture-nimcache"
+  cleanDir(cache)
+  check run("nim c --nimcache:" & cache.quoteShell & " -o:" &
+      result.quoteShell & " src/scour.nim").exitCode == 0
+
+proc snapshot(name: string): string =
+  readFile(getCurrentDir() / "tests" / "snapshots" / name)
+
+proc checkSnapshot(result: tuple[output: string; exitCode: int];
+    name: string; exitCode: int) =
+  check result.exitCode == exitCode
+  check result.output == snapshot(name)
+
 proc testPlan(root: string; candidates: seq[string]): ScanPlan =
   ScanPlan(
     mode: scanExplicitPaths,
