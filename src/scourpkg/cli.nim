@@ -8,9 +8,14 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
   options.outputFormat = formatText
   options.failOn = failOnError
   var index = 0
+  var optionsEnded = false
 
   while index < args.len:
     let arg = args[index]
+    if optionsEnded:
+      options.explicitPaths.add(arg)
+      inc index
+      continue
     case arg
     of "--help":
       options.showHelp = true
@@ -67,7 +72,7 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
       else:
         fatal("invalid --color value: " & args[index])
     of "--":
-      discard
+      optionsEnded = true
     else:
       if arg.startsWith("-"):
         fatal("unknown argument: " & arg)
