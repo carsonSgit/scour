@@ -122,6 +122,7 @@ suite "CLI parser":
     check options.configPath == "scour.toml"
     check options.colorMode == colorAuto
     check options.explicitPaths == @["src"]
+    check parseCliArgs(@["--", "-dash.ts"]).explicitPaths == @["-dash.ts"]
 
   test "parses color modes":
     check parseCliArgs(@["--color", "auto"]).colorMode == colorAuto
@@ -919,6 +920,9 @@ suite "command behavior":
         "[rules]\nconsole-log = \"off\"\n")
     check "console-log overlay.ts" notin run(binary.quoteShell &
         " --config scour.toml overlay.ts", dirty).output
+    writeFile(dirty / "-dash.ts", "debugger;\n")
+    check "debugger -dash.ts:1:1" in run(binary.quoteShell & " -- -dash.ts",
+        dirty).output
 
   test "help version invalid and basic scan commands":
     let binary = getTempDir() / "scour-test-bin"
