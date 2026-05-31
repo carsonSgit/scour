@@ -51,3 +51,16 @@ format = "github"
 ```
 
 Explicit CLI flags override config values.
+
+## Rule Discovery
+
+List implemented rules or explain one rule without running a scan:
+
+```sh
+scour rules
+scour explain console-log
+scour --config path/to/scour.toml rules
+```
+
+Discovery output includes effective severity and triage values after config
+overrides.
