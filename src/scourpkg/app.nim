@@ -1,4 +1,5 @@
-import cli, config, errors, files, help, issues, output, repo, scan_plan
+import cli, config, errors, files, help, issues, output, repo, rule_catalog,
+    rule_output, scan_plan
 import rules/branch_hygiene
 import rules/cross_reference
 import rules/repo_hygiene
@@ -16,6 +17,16 @@ proc runScour*(): int =
     let repoContext = discoverRepo()
     let configDiscovery = discoverConfig(repoContext, options.configPath)
     let runtimeConfig = loadConfig(configDiscovery)
+    case options.command
+    of commandRules:
+      stdout.write(renderRules(runtimeConfig))
+      return 0
+    of commandExplain:
+      stdout.write(renderExplanation(findRule(options.explainRuleId),
+          runtimeConfig))
+      return 0
+    of commandScan:
+      discard
     let mode = resolveScanMode(options, repoContext)
     var effectiveOptions = options
     if not effectiveOptions.colorExplicit:

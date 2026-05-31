@@ -1,6 +1,6 @@
 import algorithm, json, os, osproc, sequtils, strutils, tables
 
-import ../config, ../issues, ../scan_plan
+import ../config, ../issues, ../rule_catalog, ../scan_plan
 
 const
   NodeLockfiles = [
@@ -35,7 +35,7 @@ proc joinRepoPath(dir, name: string): string =
   else:
     dir & "/" & name
 
-proc runGit(root: string; args: string): tuple[output: string, exitCode: int] =
+proc runGit(root: string; args: string): tuple[output: string; exitCode: int] =
   execCmdEx("git -C " & quoteShell(root) & " " & args)
 
 proc repositoryFiles(plan: ScanPlan): seq[string] =
@@ -61,7 +61,7 @@ proc safeRead(root, file: string): string =
   else:
     ""
 
-proc lineColumn(text: string; index: int): tuple[line: int, column: int] =
+proc lineColumn(text: string; index: int): tuple[line: int; column: int] =
   result = (line: 1, column: 1)
   for i in 0 ..< min(index, text.len):
     if text[i] == '\n':
@@ -78,11 +78,12 @@ proc issue(
     line, column: int;
     message: string
 ): Issue =
+  let definition = findRule(ruleId)
   Issue(
     ruleId: ruleId,
-    severity: severity,
-    category: category,
-    triage: triage,
+    severity: definition.defaultSeverity.toSeverity(),
+    category: definition.category,
+    triage: definition.defaultTriage,
     file: file,
     line: line,
     column: column,
@@ -101,7 +102,8 @@ proc envError(file: string; line, column: int; name: string): Issue =
     "Environment variable " & name & " is used but absent from env example files."
   )
 
-proc commandWarning(ruleId, category, file: string; line, column: int; command: string): Issue =
+proc commandWarning(ruleId, category, file: string; line, column: int;
+    command: string): Issue =
   issue(
     ruleId,
     category,
@@ -113,7 +115,8 @@ proc commandWarning(ruleId, category, file: string; line, column: int; command: 
     "Command `" & command & "` references a missing script or task target."
   )
 
-proc commandError(ruleId, category, file: string; line, column: int; command: string): Issue =
+proc commandError(ruleId, category, file: string; line, column: int;
+    command: string): Issue =
   issue(
     ruleId,
     category,
@@ -137,7 +140,8 @@ proc packageWarning(file: string): Issue =
     "package.json changed without its existing Node lockfile."
   )
 
-proc loadEnvNames(root: string; files: openArray[string]; exampleNames: openArray[string]): Table[string, bool] =
+proc loadEnvNames(root: string; files: openArray[string];
+    exampleNames: openArray[string]): Table[string, bool] =
   for file in files:
     if file.fileName() notin exampleNames:
       continue
@@ -183,7 +187,8 @@ proc scanPropertyEnv(
     if nameStart < text.len and text[nameStart].isEnvStart():
       while nameEnd < text.len and text[nameEnd].isEnvPart():
         inc nameEnd
-      result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index, documented, ignoredNames)
+      result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index,
+          documented, ignoredNames)
     searchFrom = max(index + 1, nameEnd)
 
 proc scanQuotedEnv(
@@ -208,28 +213,40 @@ proc scanQuotedEnv(
       while nameEnd < text.len and text[nameEnd].isEnvPart():
         inc nameEnd
       if nameEnd < text.len and text[nameEnd] == quote:
-        result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index, documented, ignoredNames)
+        result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index,
+            documented, ignoredNames)
     searchFrom = max(index + 1, nameEnd)
 
-proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[string]; runtimeConfig: RuntimeConfig) =
-  let documented = loadEnvNames(plan.repo.root, files, runtimeConfig.envExampleFiles)
+proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[
+    string]; runtimeConfig: RuntimeConfig) =
+  let documented = loadEnvNames(plan.repo.root, files,
+      runtimeConfig.envExampleFiles)
   for candidate in plan.candidates:
     let text = safeRead(plan.repo.root, candidate)
     if text.len == 0:
       continue
-    result.scanPropertyEnv(candidate, text, "process.env.", documented, runtimeConfig.ignoredEnvVars)
-    result.scanPropertyEnv(candidate, text, "import.meta.env.", documented, runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "Deno.env.get(", documented, runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "os.Getenv(", documented, runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "std::env::var(", documented, runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "System.getenv(", documented, runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "ENV[", documented, runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "getenv(", documented, runtimeConfig.ignoredEnvVars)
+    result.scanPropertyEnv(candidate, text, "process.env.", documented,
+        runtimeConfig.ignoredEnvVars)
+    result.scanPropertyEnv(candidate, text, "import.meta.env.", documented,
+        runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "Deno.env.get(", documented,
+        runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "os.Getenv(", documented,
+        runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "std::env::var(", documented,
+        runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "System.getenv(", documented,
+        runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "ENV[", documented,
+        runtimeConfig.ignoredEnvVars)
+    result.scanQuotedEnv(candidate, text, "getenv(", documented,
+        runtimeConfig.ignoredEnvVars)
 
 proc addPackageScripts(inventory: var CommandInventory; root, file: string) =
   try:
     let parsed = parseJson(safeRead(root, file))
-    if parsed.kind == JObject and parsed.hasKey("scripts") and parsed["scripts"].kind == JObject:
+    if parsed.kind == JObject and parsed.hasKey("scripts") and parsed[
+        "scripts"].kind == JObject:
       for key in parsed["scripts"].keys:
         inventory.packageScripts[key] = true
   except JsonParsingError, IOError, OSError:
@@ -247,7 +264,8 @@ proc addMakeTargets(inventory: var CommandInventory; root, file: string) =
 proc addJustTargets(inventory: var CommandInventory; root, file: string) =
   for line in safeRead(root, file).splitLines():
     let trimmed = line.strip()
-    if trimmed.len == 0 or trimmed.startsWith("#") or trimmed.startsWith("@") or trimmed.startsWith("set "):
+    if trimmed.len == 0 or trimmed.startsWith("#") or trimmed.startsWith("@") or
+        trimmed.startsWith("set "):
       continue
     let name = trimmed.splitWhitespace()[0].split(":")[0]
     if name.len > 0 and name[0].isAlphaAscii():
@@ -266,7 +284,8 @@ proc addTaskTargets(inventory: var CommandInventory; root, file: string) =
       if stripped.endsWith(":") and not stripped.startsWith("-"):
         inventory.taskTargets[stripped[0 .. ^2]] = true
 
-proc commandInventory(root: string; files: openArray[string]): CommandInventory =
+proc commandInventory(root: string; files: openArray[
+    string]): CommandInventory =
   for file in files:
     case file.fileName()
     of "package.json":
@@ -280,7 +299,7 @@ proc commandInventory(root: string; files: openArray[string]): CommandInventory 
     else:
       discard
 
-proc commandTarget(command: string): tuple[kind: string, target: string] =
+proc commandTarget(command: string): tuple[kind: string; target: string] =
   let parts = command.strip().splitWhitespace()
   if parts.len == 0:
     return ("", "")
@@ -338,12 +357,14 @@ proc commandPrefix(line: string): string =
 
 proc isCommandCandidate(line: string): bool =
   let text = line.commandPrefix()
-  for prefix in ["npm run ", "pnpm run ", "pnpm ", "yarn ", "bun run ", "make ", "just ", "task "]:
+  for prefix in ["npm run ", "pnpm run ", "pnpm ", "yarn ", "bun run ", "make ",
+      "just ", "task "]:
     if text.startsWith(prefix):
       return true
   false
 
-proc scanReadmeCommandDrift(result: var seq[Issue]; plan: ScanPlan; inventory: CommandInventory) =
+proc scanReadmeCommandDrift(result: var seq[Issue]; plan: ScanPlan;
+    inventory: CommandInventory) =
   for file in repositoryFiles(plan):
     if file != "README.md" and not (file.startsWith("docs/") and file.endsWith(".md")):
       continue
@@ -356,14 +377,17 @@ proc scanReadmeCommandDrift(result: var seq[Issue]; plan: ScanPlan; inventory: C
       if trimmed.startsWith("```"):
         let lang = trimmed[3 .. ^1].strip().toLowerAscii()
         inFence = not inFence
-        shellFence = inFence and (lang in ["", "sh", "shell", "bash", "zsh", "console", "terminal"])
+        shellFence = inFence and (lang in ["", "sh", "shell", "bash", "zsh",
+            "console", "terminal"])
         continue
       if (not inFence or shellFence) and line.isCommandCandidate():
         let command = line.commandPrefix()
         if not command.isValid(inventory):
-          result.add(commandWarning("readme-command-drift", "docs-drift", file, lineNumber, line.find(command.strip()) + 1, command))
+          result.add(commandWarning("readme-command-drift", "docs-drift", file,
+              lineNumber, line.find(command.strip()) + 1, command))
 
-proc workflowRunCommands(text: string): seq[tuple[line: int, column: int, command: string]] =
+proc workflowRunCommands(text: string): seq[tuple[line: int; column: int;
+    command: string]] =
   let lines = text.splitLines()
   var i = 0
   while i < lines.len:
@@ -379,22 +403,27 @@ proc workflowRunCommands(text: string): seq[tuple[line: int, column: int, comman
         while i < lines.len and (lines[i].len == 0 or lines[i][0].isSpaceAscii()):
           if lines[i].isCommandCandidate():
             let command = lines[i].commandPrefix()
-            result.add((line: i + 1, column: lines[i].find(command.strip()) + 1, command: command))
+            result.add((line: i + 1, column: lines[i].find(command.strip()) + 1,
+                command: command))
           inc i
         continue
       elif after.len > 0:
         result.add((line: i + 1, column: line.find(after) + 1, command: after))
     inc i
 
-proc scanCiCommandDrift(result: var seq[Issue]; plan: ScanPlan; inventory: CommandInventory) =
+proc scanCiCommandDrift(result: var seq[Issue]; plan: ScanPlan;
+    inventory: CommandInventory) =
   for file in repositoryFiles(plan):
-    if not (file.startsWith(".github/workflows/") and (file.endsWith(".yml") or file.endsWith(".yaml"))):
+    if not (file.startsWith(".github/workflows/") and (file.endsWith(".yml") or
+        file.endsWith(".yaml"))):
       continue
     for command in workflowRunCommands(safeRead(plan.repo.root, file)):
       if command.command.isCommandCandidate() and not command.command.isValid(inventory):
-        result.add(commandError("ci-command-drift", "ci-drift", file, command.line, command.column, command.command))
+        result.add(commandError("ci-command-drift", "ci-drift", file,
+            command.line, command.column, command.command))
 
-proc scanPackageLockDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[string]) =
+proc scanPackageLockDrift(result: var seq[Issue]; plan: ScanPlan;
+    files: openArray[string]) =
   var fileSet = initTable[string, bool]()
   var candidateSet = initTable[string, bool]()
   for file in files:

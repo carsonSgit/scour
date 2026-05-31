@@ -1,6 +1,6 @@
 import algorithm, os, osproc, sequtils, strutils, tables
 
-import ../config, ../issues, ../scan_plan
+import ../config, ../issues, ../rule_catalog, ../scan_plan
 
 const Lockfiles = [
   "package-lock.json",
@@ -36,7 +36,7 @@ proc joinRepoPath(dir, name: string): string =
   else:
     dir & "/" & name
 
-proc runGit(root: string; args: string): tuple[output: string, exitCode: int] =
+proc runGit(root: string; args: string): tuple[output: string; exitCode: int] =
   execCmdEx("git -C " & quoteShell(root) & " " & args)
 
 proc repositoryFiles(plan: ScanPlan): seq[string] =
@@ -56,11 +56,12 @@ proc repositoryFiles(plan: ScanPlan): seq[string] =
   result.sort()
 
 proc warning(ruleId, category, file, message: string): Issue =
+  let definition = findRule(ruleId)
   Issue(
     ruleId: ruleId,
-    severity: severityWarning,
-    category: category,
-    triage: triageFixNow,
+    severity: definition.defaultSeverity.toSeverity(),
+    category: definition.category,
+    triage: definition.defaultTriage,
     file: file,
     message: message
   )

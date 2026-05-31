@@ -1,14 +1,8 @@
 import os, strutils
 
-import errors, issues, scan_plan
+import errors, issues, rule_catalog, scan_plan
 
 type
-  RuleSeverity* = enum
-    ruleSeverityError = "error",
-    ruleSeverityWarning = "warning",
-    ruleSeverityInfo = "info",
-    ruleSeverityOff = "off"
-
   RuleOverride* = object
     ruleId*: string
     severity*: RuleSeverity
@@ -43,23 +37,6 @@ proc defaultConfig*(): RuntimeConfig =
 proc canonicalRuleId*(key: string): string =
   key.replace('_', '-')
 
-proc validRuleId(ruleId: string): bool =
-  ruleId in [
-    "merge-conflict",
-    "debugger",
-    "focused-test",
-    "skipped-test",
-    "console-log",
-    "ts-ignore",
-    "duplicate-lockfiles",
-    "dockerignore-missing",
-    "generated-files",
-    "env-drift",
-    "readme-command-drift",
-    "ci-command-drift",
-    "package-lock-drift"
-  ]
-
 proc unquote(value: string): string =
   if value.len >= 2 and ((value[0] == '"' and value[^1] == '"') or (value[0] ==
       '\'' and value[^1] == '\'')):
@@ -86,13 +63,6 @@ proc parseSeverity(value: string; path: string; line: int;
   else:
     fatal("invalid config value in " & path & ":" & $line & " for " & key &
         ": unknown severity `" & value.unquote() & "`. Expected one of: error, warning, info, off")
-
-proc toSeverity*(value: RuleSeverity): Severity =
-  case value
-  of ruleSeverityError: severityError
-  of ruleSeverityWarning: severityWarning
-  of ruleSeverityInfo: severityInfo
-  of ruleSeverityOff: severityInfo
 
 proc parseTriage(value: string; path: string; line: int;
     key: string): TriageLevel =
@@ -175,9 +145,20 @@ proc ruleOverride*(config: RuntimeConfig; ruleId: string): RuleOverride =
     return config.rules[index]
   RuleOverride(ruleId: ruleId)
 
-proc ruleIsOff*(config: RuntimeConfig; ruleId: string): bool =
+proc effectiveSeverity*(config: RuntimeConfig; ruleId: string): RuleSeverity =
   let setting = config.ruleOverride(ruleId)
-  setting.hasSeverity and setting.severity == ruleSeverityOff
+  if setting.hasSeverity:
+    return setting.severity
+  findRule(ruleId).defaultSeverity
+
+proc effectiveTriage*(config: RuntimeConfig; ruleId: string): TriageLevel =
+  let setting = config.ruleOverride(ruleId)
+  if setting.hasTriage:
+    return setting.triage
+  findRule(ruleId).defaultTriage
+
+proc ruleIsOff*(config: RuntimeConfig; ruleId: string): bool =
+  config.effectiveSeverity(ruleId) == ruleSeverityOff
 
 proc applyRuleOverrides*(issues: seq[Issue]; config: RuntimeConfig): seq[Issue] =
   for issue in issues:

@@ -1,6 +1,6 @@
 import os, strutils
 
-import ../config, ../issues, ../scan_plan
+import ../config, ../issues, ../rule_catalog, ../scan_plan
 
 const
   JsTsExtensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"]
@@ -27,12 +27,14 @@ proc isFullLineComment(line: string): bool =
   trimmed.startsWith("//") or trimmed.startsWith("#") or
     trimmed.startsWith("*") or trimmed.startsWith("<!--")
 
-proc issue(ruleId, file: string; lineNumber, column: int; message: string): Issue =
+proc issue(ruleId, file: string; lineNumber, column: int;
+    message: string): Issue =
+  let definition = findRule(ruleId)
   Issue(
     ruleId: ruleId,
-    severity: severityError,
-    category: "hygiene",
-    triage: triageFixNow,
+    severity: definition.defaultSeverity.toSeverity(),
+    category: definition.category,
+    triage: definition.defaultTriage,
     file: file,
     line: lineNumber,
     column: column,
@@ -51,7 +53,8 @@ proc addFirstPatternIssue(
       result.add(issue(rule.id, file, lineNumber, column + 1, rule.message))
       return
 
-proc scanMergeConflict(result: var seq[Issue]; file, line: string; lineNumber: int) =
+proc scanMergeConflict(result: var seq[Issue]; file, line: string;
+    lineNumber: int) =
   for marker in ["<<<<<<<", "=======", ">>>>>>>"]:
     let column = line.find(marker)
     if column == 0:
@@ -68,12 +71,14 @@ proc scanBranchHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Is
   let focusedTest = LineRule(
     id: "focused-test",
     message: "Focused test left in source.",
-    patterns: @["describe.only", "it.only", "test.only", "context.only", "fdescribe(", "fit("]
+    patterns: @["describe.only", "it.only", "test.only", "context.only",
+        "fdescribe(", "fit("]
   )
   let skippedTest = LineRule(
     id: "skipped-test",
     message: "Skipped test left in source.",
-    patterns: @["describe.skip", "it.skip", "test.skip", "context.skip", "xdescribe(", "xit("]
+    patterns: @["describe.skip", "it.skip", "test.skip", "context.skip",
+        "xdescribe(", "xit("]
   )
 
   for candidate in plan.candidates:
