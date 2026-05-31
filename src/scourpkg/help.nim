@@ -5,6 +5,7 @@ scour 0.1.0
 
 Usage:
   scour [options] [paths...]
+  scour triage [options] [paths...]
   scour [--config <path>] rules
   scour [--config <path>] explain <rule>
 
@@ -18,4 +19,5 @@ Options:
   --format <value> Output format: text, json, or github.
   --fail-on <level> Fail on: error, warning, or info.
   --exit-zero      Return success even when findings meet the threshold.
+  --color <value>  Color mode: auto, always, or never.
 """
