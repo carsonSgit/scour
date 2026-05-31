@@ -70,10 +70,15 @@ proc initFixtureRepo(name, root: string) =
   check run("git add .", root).exitCode == 0
   check run("git commit -m fixture", root).exitCode == 0
 
+var fixtureBinaryBuilt = false
+
 proc fixtureBinary(): string =
   result = getTempDir() / "scour-fixture-bin"
-  if fileExists(result):
+  if fixtureBinaryBuilt:
     return
+  fixtureBinaryBuilt = true
+  if fileExists(result):
+    removeFile(result)
   let cache = getTempDir() / "scour-fixture-nimcache"
   cleanDir(cache)
   check run("nim c --nimcache:" & cache.quoteShell & " -o:" &
