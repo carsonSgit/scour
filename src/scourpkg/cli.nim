@@ -8,9 +8,14 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
   options.outputFormat = formatText
   options.failOn = failOnError
   var index = 0
+  var optionsEnded = false
 
   while index < args.len:
     let arg = args[index]
+    if optionsEnded:
+      options.explicitPaths.add(arg)
+      inc index
+      continue
     case arg
     of "--help":
       options.showHelp = true
@@ -67,7 +72,7 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
       else:
         fatal("invalid --color value: " & args[index])
     of "--":
-      discard
+      optionsEnded = true
     else:
       if arg.startsWith("-"):
         fatal("unknown argument: " & arg)
@@ -79,6 +84,8 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
         options.command = commandRules
       elif arg == "explain":
         options.command = commandExplain
+      elif arg == "triage":
+        options.command = commandTriage
       else:
         options.explicitPaths.add(arg)
     inc index
@@ -99,7 +106,10 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
         options.explainRuleId):
       fatal("unknown rule ID: " & options.explainRuleId)
 
-  if options.command != commandScan and (
+  if options.command == commandTriage and options.formatExplicit:
+    fatal("--format cannot be used with triage")
+
+  if options.command notin {commandScan, commandTriage} and (
       options.staged or options.all or options.sinceRef.len > 0 or
       options.failOnExplicit or options.exitZero or options.colorExplicit):
     fatal("scan-only options cannot be used with discovery commands")

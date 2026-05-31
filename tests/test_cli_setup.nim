@@ -15,6 +15,7 @@ import ../src/scourpkg/rules/cross_reference
 import ../src/scourpkg/rules/repo_hygiene
 import ../src/scourpkg/scan_plan
 import ../src/scourpkg/text_output
+import ../src/scourpkg/triage_output
 
 proc expectFatal(body: proc()) =
   var raised = false
@@ -52,6 +53,45 @@ proc cleanDir(path: string) =
   if dirExists(path):
     removeDir(path)
 
+proc copyFixture(name, root: string) =
+  let source = getCurrentDir() / "tests" / "fixtures" / name
+  for path in walkDirRec(source, relative = true):
+    let destination = root / path
+    createDir(destination.parentDir())
+    copyFile(source / path, destination)
+
+proc initFixtureRepo(name, root: string) =
+  cleanDir(root)
+  createDir(root)
+  copyFixture(name, root)
+  check run("git init", root).exitCode == 0
+  check run("git config user.email test@example.com", root).exitCode == 0
+  check run("git config user.name Test", root).exitCode == 0
+  check run("git add .", root).exitCode == 0
+  check run("git commit -m fixture", root).exitCode == 0
+
+var fixtureBinaryBuilt = false
+
+proc fixtureBinary(): string =
+  result = getTempDir() / "scour-fixture-bin"
+  if fixtureBinaryBuilt:
+    return
+  fixtureBinaryBuilt = true
+  if fileExists(result):
+    removeFile(result)
+  let cache = getTempDir() / "scour-fixture-nimcache"
+  cleanDir(cache)
+  check run("nim c --nimcache:" & cache.quoteShell & " -o:" &
+      result.quoteShell & " src/scour.nim").exitCode == 0
+
+proc snapshot(name: string): string =
+  readFile(getCurrentDir() / "tests" / "snapshots" / name)
+
+proc checkSnapshot(result: tuple[output: string; exitCode: int];
+    name: string; exitCode: int) =
+  check result.exitCode == exitCode
+  check result.output == snapshot(name)
+
 proc testPlan(root: string; candidates: seq[string]): ScanPlan =
   ScanPlan(
     mode: scanExplicitPaths,
@@ -87,6 +127,7 @@ suite "CLI parser":
     check options.configPath == "scour.toml"
     check options.colorMode == colorAuto
     check options.explicitPaths == @["src"]
+    check parseCliArgs(@["--", "-dash.ts"]).explicitPaths == @["-dash.ts"]
 
   test "parses color modes":
     check parseCliArgs(@["--color", "auto"]).colorMode == colorAuto
@@ -120,6 +161,8 @@ suite "CLI parser":
         "console-log"])
     check explain.command == commandExplain
     check explain.explainRuleId == "console-log"
+    check parseCliArgs(@["triage", "--all"]).command == commandTriage
+    expectFatal(proc() = discard parseCliArgs(@["triage", "--format", "json"]))
 
   test "rejects invalid discovery commands":
     expectFatal(proc() = discard parseCliArgs(@["explain"]))
@@ -267,6 +310,18 @@ suite "text output":
         file: "a.nim", message: "Bad.")]
     check "\e[" notin renderIssues(issues, colorNever)
     check "\e[" in renderIssues(issues, colorAlways)
+
+  test "renders grouped triage in deterministic order":
+    let output = renderTriage(@[
+      Issue(ruleId: "review", severity: severityWarning,
+        triage: triageReview, file: "b.ts", message: "Review."),
+      Issue(ruleId: "block", severity: severityError,
+        triage: triageBlocker, file: "a.ts", line: 2, message: "Block.")
+    ])
+    check output.startsWith("scour triage found 2 issue(s)\n\nBlockers\n")
+    check output.find("Blockers") < output.find("Needs Review")
+    check "  1 blocker(s)\n" in output
+    check "  1 needs-review\n" in output
 
 suite "repo and config discovery":
   test "uses current directory outside Git":
@@ -836,6 +891,44 @@ suite "scan planning and files":
     check collected.files == @["kept.ts"]
 
 suite "command behavior":
+  test "fixture repositories lock clean dirty formats and scan modes":
+    let binary = fixtureBinary()
+    let clean = getTempDir() / "scour-fixture-clean"
+    initFixtureRepo("clean", clean)
+    checkSnapshot(run(binary.quoteShell & " --all --color never", clean),
+        "clean-text.txt", 0)
+
+    let dirty = getTempDir() / "scour-fixture-dirty"
+    initFixtureRepo("dirty", dirty)
+    checkSnapshot(run(binary.quoteShell & " --all --color never", dirty),
+        "dirty-text.txt", 1)
+    checkSnapshot(run(binary.quoteShell & " --all --format json", dirty),
+        "dirty-json.txt", 1)
+    checkSnapshot(run(binary.quoteShell & " --all --format github", dirty),
+        "dirty-github.txt", 1)
+    check run(binary.quoteShell & " --all --fail-on warning", dirty).exitCode == 1
+    check run(binary.quoteShell & " --all --exit-zero", dirty).exitCode == 0
+    checkSnapshot(run(binary.quoteShell & " triage --all", dirty),
+        "dirty-triage.txt", 1)
+    check run(binary.quoteShell & " triage --format json", dirty).exitCode == 2
+
+    writeFile(dirty / "overlay.ts", "console.log('overlay');\n")
+    check run("git add overlay.ts", dirty).exitCode == 0
+    check "console-log overlay.ts:1:1" in run(binary.quoteShell & " --staged",
+        dirty).output
+    check run("git commit -m overlay", dirty).exitCode == 0
+    check "console-log overlay.ts:1:1" in run(binary.quoteShell &
+        " --since HEAD~1", dirty).output
+    check "debugger app.ts:2:1" in run(binary.quoteShell & " app.ts",
+        dirty).output
+    writeFile(dirty / "scour.toml",
+        "[rules]\nconsole-log = \"off\"\n")
+    check "console-log overlay.ts" notin run(binary.quoteShell &
+        " --config scour.toml overlay.ts", dirty).output
+    writeFile(dirty / "-dash.ts", "debugger;\n")
+    check "debugger -dash.ts:1:1" in run(binary.quoteShell & " -- -dash.ts",
+        dirty).output
+
   test "help version invalid and basic scan commands":
     let binary = getTempDir() / "scour-test-bin"
     let cache = getTempDir() / "scour-test-nimcache"
