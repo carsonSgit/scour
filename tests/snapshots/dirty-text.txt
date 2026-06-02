@@ -1,27 +1,58 @@
-Scour found 12 issue(s).
+Scour found 12 issue(s)
 
-error merge-conflict app.ts:1:1 - Merge conflict marker found.
+Issues
 
-error debugger app.ts:2:1 - Debugger statement found.
+ERROR merge-conflict
+  app.ts:1:1
+  Merge conflict marker found.
 
-error focused-test app.ts:3:1 - Focused test left in source.
+ERROR debugger
+  app.ts:2:1
+  Debugger statement found.
 
-error skipped-test app.ts:4:1 - Skipped test left in source.
+ERROR focused-test
+  app.ts:3:1
+  Focused test left in source.
 
-warning console-log app.ts:5:1 - console.log call found.
+ERROR skipped-test
+  app.ts:4:1
+  Skipped test left in source.
 
-warning ts-ignore app.ts:6:4 - @ts-ignore suppression found.
+WARNING console-log
+  app.ts:5:1
+  console.log call found.
 
-warning duplicate-lockfiles package.json - Multiple package manager lockfiles found in the same package root.
+WARNING ts-ignore
+  app.ts:6:4
+  @ts-ignore suppression found.
 
-warning dockerignore-missing Dockerfile - Dockerfile has no same-directory .dockerignore.
+WARNING duplicate-lockfiles
+  package.json
+  Multiple package manager lockfiles found in the same package root.
 
-warning generated-files dist/generated.js - Generated output is tracked in the repository.
+WARNING dockerignore-missing
+  Dockerfile
+  Dockerfile has no same-directory .dockerignore.
 
-error env-drift app.ts:7:15 - Environment variable MISSING_TOKEN is used but absent from env example files.
+WARNING generated-files
+  dist/generated.js
+  Generated output is tracked in the repository.
 
-warning readme-command-drift README.md:4:1 - Command `npm run missing` references a missing script or task target.
+ERROR env-drift
+  app.ts:7:15
+  Environment variable MISSING_TOKEN is used but absent from env example files.
 
-error ci-command-drift .github/workflows/ci.yml:4:14 - Command `npm run missing` references a missing script or task target.
+WARNING readme-command-drift
+  README.md:4:1
+  Command `npm run missing` references a missing script or task target.
 
-Summary: 12 issue(s), 6 error(s), 6 warning(s), 0 info(s), 6 file(s)
+ERROR ci-command-drift
+  .github/workflows/ci.yml:4:14
+  Command `npm run missing` references a missing script or task target.
+
+Summary
+  Issues: 12
+  Errors: 6
+  Warnings: 6
+  Info: 0
+  Files: 6

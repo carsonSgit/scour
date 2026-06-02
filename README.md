@@ -76,6 +76,16 @@ scour --exit-zero
 threshold exit `1`; malformed arguments and invalid config exit `2`.
 `--exit-zero` suppresses issue-based failures only.
 
+For a React Doctor-style presentation over the same Scour findings:
+
+```sh
+scour --format doctor
+scour --format doctor --all
+```
+
+This report uses Scour's own issue and score data to render a gauge, an
+emoticon-style indicator, a concise issue list, and prioritized next steps.
+
 The same defaults can be stored in `scour.toml`:
 
 ```toml
@@ -113,18 +123,24 @@ Create a disposable nested repository that demonstrates all 13 implemented
 rules:
 
 ```sh
-nimble build
-bash demo/setup.sh
-cd demo/workspace
-../../scour --all
-../../scour triage --all
-../../scour
-../../scour rules
+bash demo/install.sh
+bash demo/run.sh
 ```
 
 The first two scans show the 12 static findings. The default scan also exposes
 `package-lock-drift` through a staged manifest-only edit under `staged/`. Run
-`demo/setup.sh` again to reset the workspace.
+`demo/install.sh` again to reset the workspace and rebuild reports.
+
+The demo scripts persist Scour outputs under
+`demo/reports`, calculate a launch-demo
+score with `scour --score`, write a React Doctor-style report with
+`scour --format doctor`, and point to rule explanations for the walkthrough.
+The optional `--with-react-doctor` path runs React Doctor against a separate
+sample workspace under `demo/react-doctor-workspace` so the Scour baseline
+stays stable.
+The broader launch
+roadmap for turning that demo into a first-class Scour Doctor product lives in
+`docs/scour-doctor-launch-plan.md`.
 
 ## Rule Discovery
 
