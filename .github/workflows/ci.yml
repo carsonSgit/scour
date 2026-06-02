@@ -29,8 +29,11 @@ jobs:
       - name: Test
         run: nimble test -y
 
+      - name: Test distribution scripts
+        run: bash tests/test_distribution.sh
+
       - name: Smoke test help
-        run: nim c -r src/scour.nim -- --help
+        run: ./scour --help
 
       - name: Smoke test version
-        run: nim c -r src/scour.nim -- --version
+        run: ./scour --version
