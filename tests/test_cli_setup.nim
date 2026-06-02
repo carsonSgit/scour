@@ -2,6 +2,7 @@ import json, os, osproc, strutils, unittest
 
 import ../src/scourpkg/cli
 import ../src/scourpkg/config
+import ../src/scourpkg/doctor_output
 import ../src/scourpkg/errors
 import ../src/scourpkg/files
 import ../src/scourpkg/issues
@@ -136,13 +137,14 @@ suite "CLI parser":
 
   test "parses CI output options":
     let options = parseCliArgs(@[
-      "--format", "github", "--fail-on", "warning", "--exit-zero"
+      "--format", "doctor", "--fail-on", "warning", "--exit-zero", "--score"
     ])
-    check options.outputFormat == formatGitHub
+    check options.outputFormat == formatDoctor
     check options.formatExplicit
     check options.failOn == failOnWarning
     check options.failOnExplicit
     check options.exitZero
+    check options.scoreOnly
 
   test "rejects invalid flags":
     expectFatal(proc() = discard parseCliArgs(@["--wat"]))
@@ -168,6 +170,7 @@ suite "CLI parser":
     expectFatal(proc() = discard parseCliArgs(@["explain"]))
     expectFatal(proc() = discard parseCliArgs(@["explain", "missing-rule"]))
     expectFatal(proc() = discard parseCliArgs(@["explain", "console_log"]))
+    expectFatal(proc() = discard parseCliArgs(@["triage", "--score"]))
     expectFatal(proc() = discard parseCliArgs(@["rules", "extra"]))
     expectFatal(proc() = discard parseCliArgs(@["--all", "rules"]))
     expectFatal(proc() = discard parseCliArgs(@["--fail-on", "warning",
@@ -234,17 +237,48 @@ suite "issue summaries":
     check @[Issue(severity: severityWarning)].hasFailingIssues(failOnWarning)
     check @[Issue(severity: severityInfo)].hasFailingIssues(failOnInfo)
 
+  test "computes a bounded weighted score":
+    let score = scoreIssues(@[
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityWarning, triage: triageFixNow),
+      Issue(severity: severityInfo, triage: triageReview)
+    ])
+    check score.current == 82
+    check score.max == 100
+    check score.model == "weighted-v1"
+    check score.deductions.errors == 10
+    check score.deductions.warnings == 4
+    check score.deductions.infos == 1
+    check score.deductions.blockers == 3
+    check score.deductions.total == 18
+    check scoreIssues(@[
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityError, triage: triageBlocker),
+      Issue(severity: severityError, triage: triageBlocker)
+    ]).current == 0
+
 suite "structured output":
   test "renders stable JSON for clean scans and full issues":
     let clean = parseJson(renderJsonIssues(@[]))
     check clean["summary"]["total"].getInt() == 0
     check clean["summary"]["triage"]["ignored"].getInt() == 0
+    check clean["score"]["current"].getInt() == 100
+    check clean["score"]["deductions"]["total"].getInt() == 0
     check clean["issues"].len == 0
     let rendered = parseJson(renderJsonIssues(@[Issue(
       ruleId: "config/missing", severity: severityWarning,
       triage: triageReview, category: "config", file: "a.nim",
       line: 2, column: 3, message: "Missing.", suggestion: "Add it."
     )]))
+    check rendered["score"]["current"].getInt() == 96
+    check rendered["score"]["deductions"]["warnings"].getInt() == 4
     check rendered["issues"][0]["rule"].getStr() == "config/missing"
     check rendered["issues"][0]["severity"].getStr() == "warning"
     check rendered["issues"][0]["triage_level"].getStr() == "review"
@@ -295,10 +329,10 @@ suite "text output":
         message: "README is stale."
       )
     ], colorNever)
-    check "error config/missing src/scour.nim:10:4 - Missing required config." in output
+    check "ERROR config/missing\n  src/scour.nim:10:4\n  Missing required config." in output
     check "Suggestion: Add scour.toml." in output
-    check "warning docs/stale README.md - README is stale." in output
-    check "Summary: 2 issue(s), 1 error(s), 1 warning(s), 0 info(s), 2 file(s)" in output
+    check "WARNING docs/stale\n  README.md\n  README is stale." in output
+    check "Summary\n  Issues: 2\n  Errors: 1\n  Warnings: 1\n  Info: 0\n  Files: 2" in output
 
   test "formats locations with optional line and column":
     check location(Issue(file: "a.nim")) == "a.nim"
@@ -318,10 +352,35 @@ suite "text output":
       Issue(ruleId: "block", severity: severityError,
         triage: triageBlocker, file: "a.ts", line: 2, message: "Block.")
     ])
-    check output.startsWith("scour triage found 2 issue(s)\n\nBlockers\n")
+    check output.startsWith("scour triage found 2 issue(s)\n\nBlockers (1)\n")
     check output.find("Blockers") < output.find("Needs Review")
-    check "  1 blocker(s)\n" in output
-    check "  1 needs-review\n" in output
+    check "  Blockers: 1\n" in output
+    check "  Needs review: 1\n" in output
+
+  test "renders doctor-style report with score summary and next steps":
+    let output = renderDoctorIssues(@[
+      Issue(ruleId: "config/missing", severity: severityError,
+        triage: triageBlocker, file: "src/scour.nim", line: 10, column: 4,
+        message: "Missing required config."),
+      Issue(ruleId: "docs/stale", severity: severityWarning,
+        triage: triageReview, file: "README.md",
+        message: "README is stale.")
+    ], colorNever)
+    check "Scour Doctor" in output
+    check "83 / 100   Mixed" in output
+    check "2 issue(s) · 2 file(s) · 1 error(s) · 1 warning(s) · 1 blocker(s)" in output
+    check "Top issues\n  ✖ config/missing  ·  blocker  ·  src/scour.nim:10:4" in output
+    check "    Missing required config." in output
+    check "then re-run `scour --format doctor`." in output
+    check "Scour Doctor is clear when the score reaches 100 / 100." in output
+
+  test "renders doctor-style report celebrating a clean scan":
+    let output = renderDoctorIssues(@[], colorNever)
+    check "Scour Doctor" in output
+    check "100 / 100   Perfect" in output
+    check "spotless — nice work!" in output
+    check "No issues found" in output
+    check "you're good to go" in output
 
 suite "repo and config discovery":
   test "uses current directory outside Git":
@@ -904,6 +963,9 @@ suite "command behavior":
         "dirty-text.txt", 1)
     checkSnapshot(run(binary.quoteShell & " --all --format json", dirty),
         "dirty-json.txt", 1)
+    checkSnapshot(run(binary.quoteShell & " --all --format doctor --color never",
+        dirty), "dirty-doctor.txt", 1)
+    check run(binary.quoteShell & " --all --score", dirty).output == "10\n"
     checkSnapshot(run(binary.quoteShell & " --all --format github", dirty),
         "dirty-github.txt", 1)
     check run(binary.quoteShell & " --all --fail-on warning", dirty).exitCode == 1
@@ -914,20 +976,20 @@ suite "command behavior":
 
     writeFile(dirty / "overlay.ts", "console.log('overlay');\n")
     check run("git add overlay.ts", dirty).exitCode == 0
-    check "console-log overlay.ts:1:1" in run(binary.quoteShell & " --staged",
-        dirty).output
+    check "WARNING console-log\n  overlay.ts:1:1" in run(binary.quoteShell &
+        " --staged", dirty).output
     check run("git commit -m overlay", dirty).exitCode == 0
-    check "console-log overlay.ts:1:1" in run(binary.quoteShell &
+    check "WARNING console-log\n  overlay.ts:1:1" in run(binary.quoteShell &
         " --since HEAD~1", dirty).output
-    check "debugger app.ts:2:1" in run(binary.quoteShell & " app.ts",
+    check "ERROR debugger\n  app.ts:2:1" in run(binary.quoteShell & " app.ts",
         dirty).output
     writeFile(dirty / "scour.toml",
         "[rules]\nconsole-log = \"off\"\n")
     check "console-log overlay.ts" notin run(binary.quoteShell &
         " --config scour.toml overlay.ts", dirty).output
     writeFile(dirty / "-dash.ts", "debugger;\n")
-    check "debugger -dash.ts:1:1" in run(binary.quoteShell & " -- -dash.ts",
-        dirty).output
+    check "ERROR debugger\n  -dash.ts:1:1" in run(binary.quoteShell &
+        " -- -dash.ts", dirty).output
 
   test "help version invalid and basic scan commands":
     let binary = getTempDir() / "scour-test-bin"
@@ -943,6 +1005,7 @@ suite "command behavior":
     check run(binary.quoteShell & " --version").exitCode == 0
     check run(binary.quoteShell & " --not-a-flag").exitCode == 2
     check run(binary.quoteShell & " --color sometimes").exitCode == 2
+    check run(binary.quoteShell & " triage --score").exitCode == 2
     check run(binary.quoteShell & " rules").output.contains(
         "console-log  warning  review")
     check run(binary.quoteShell & " explain console-log").output.contains(
@@ -956,6 +1019,9 @@ suite "command behavior":
     let allResult = run(binary.quoteShell & " --all", root)
     check allResult.exitCode == 0
     check allResult.output == "Scour passed. No failing issues found.\n"
+    check run(binary.quoteShell & " --format doctor --all", root).output.contains(
+        "Scour Doctor")
+    check run(binary.quoteShell & " --all --score", root).output == "100\n"
     check run(binary.quoteShell & " new.txt", root).exitCode == 0
     check run("git add new.txt", root).exitCode == 0
     check run(binary.quoteShell & " --staged", root).exitCode == 0
@@ -987,20 +1053,20 @@ suite "command behavior":
     writeFile(root / "all.ts", "console.log('all');\n")
     let allResult = run(binary.quoteShell & " --all", root)
     check allResult.exitCode == 0
-    check "warning console-log all.ts:1:1 - console.log call found." in
+    check "WARNING console-log\n  all.ts:1:1\n  console.log call found." in
         allResult.output
 
     writeFile(root / "explicit.ts", "debugger;\n")
     let explicitResult = run(binary.quoteShell & " explicit.ts", root)
     check explicitResult.exitCode == 1
-    check "error debugger explicit.ts:1:1 - Debugger statement found." in
+    check "ERROR debugger\n  explicit.ts:1:1\n  Debugger statement found." in
         explicitResult.output
 
     writeFile(root / "staged.ts", "it.only('focused', () => {});\n")
     check run("git add staged.ts", root).exitCode == 0
     let stagedResult = run(binary.quoteShell & " --staged", root)
     check stagedResult.exitCode == 1
-    check "error focused-test staged.ts:1:1 - Focused test left in source." in
+    check "ERROR focused-test\n  staged.ts:1:1\n  Focused test left in source." in
         stagedResult.output
 
     check run("git add all.ts explicit.ts", root).exitCode == 0
@@ -1010,7 +1076,7 @@ suite "command behavior":
     check run("git commit -m since-fixture", root).exitCode == 0
     let sinceResult = run(binary.quoteShell & " --since HEAD~1", root)
     check sinceResult.exitCode == 1
-    check "error skipped-test since.ts:1:1 - Skipped test left in source." in
+    check "ERROR skipped-test\n  since.ts:1:1\n  Skipped test left in source." in
         sinceResult.output
 
     writeFile(root / "scour.toml", "[rules]\nconsole-log = false\n")
@@ -1065,9 +1131,9 @@ suite "command behavior":
 
     let result = run(binary.quoteShell & " --all", root)
     check result.exitCode == 0
-    check "warning duplicate-lockfiles app/package.json - Multiple package manager lockfiles found in the same package root." in result.output
-    check "warning dockerignore-missing Dockerfile - Dockerfile has no same-directory .dockerignore." in result.output
-    check "warning generated-files dist/index.js - Generated output is tracked in the repository." in result.output
+    check "WARNING duplicate-lockfiles\n  app/package.json\n  Multiple package manager lockfiles found in the same package root." in result.output
+    check "WARNING dockerignore-missing\n  Dockerfile\n  Dockerfile has no same-directory .dockerignore." in result.output
+    check "WARNING generated-files\n  dist/index.js\n  Generated output is tracked in the repository." in result.output
 
   test "scan commands render cross-reference issue ids":
     let binary = getTempDir() / "scour-test-bin-cross-rules"
@@ -1097,7 +1163,7 @@ suite "command behavior":
     let result = run(binary.quoteShell &
         " app.ts README.md .github/workflows/ci.yml app/package.json", root)
     check result.exitCode == 1
-    check "error env-drift app.ts:1:15 - Environment variable API_TOKEN is used but absent from env example files." in result.output
-    check "warning readme-command-drift README.md:2:1 - Command `npm run missing` references a missing script or task target." in result.output
-    check "error ci-command-drift .github/workflows/ci.yml:4:14 - Command `npm run missing` references a missing script or task target." in result.output
-    check "warning package-lock-drift app/package.json - package.json changed without its existing Node lockfile." in result.output
+    check "ERROR env-drift\n  app.ts:1:15\n  Environment variable API_TOKEN is used but absent from env example files." in result.output
+    check "WARNING readme-command-drift\n  README.md:2:1\n  Command `npm run missing` references a missing script or task target." in result.output
+    check "ERROR ci-command-drift\n  .github/workflows/ci.yml:4:14\n  Command `npm run missing` references a missing script or task target." in result.output
+    check "WARNING package-lock-drift\n  app/package.json\n  package.json changed without its existing Node lockfile." in result.output

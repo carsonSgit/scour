@@ -4,6 +4,7 @@ import issues
 
 proc renderJsonIssues*(issues: openArray[Issue]): string =
   let summary = summarizeIssues(issues)
+  let score = scoreIssues(issues)
   var issueNodes = newJArray()
   for issue in issues:
     issueNodes.add(%*{
@@ -32,5 +33,17 @@ proc renderJsonIssues*(issues: openArray[Issue]): string =
         "ignored": summary.byTriage.ignored
     }
   },
+    "score": {
+      "current": score.current,
+      "max": score.max,
+      "model": score.model,
+      "deductions": {
+        "errors": score.deductions.errors,
+        "warnings": score.deductions.warnings,
+        "info": score.deductions.infos,
+        "blockers": score.deductions.blockers,
+        "total": score.deductions.total
+      }
+    },
     "issues": issueNodes
   }) & "\n"
