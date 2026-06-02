@@ -1,0 +1,82 @@
+name: Scour
+description: Run Scour repository checks
+inputs:
+  since:
+    description: Compare changes since this Git ref
+    required: false
+  staged:
+    description: Scan staged changes
+    required: false
+    default: "false"
+  all:
+    description: Scan all files
+    required: false
+    default: "false"
+  format:
+    description: Output format (text, json, or github)
+    required: false
+    default: github
+  fail-on:
+    description: Failure threshold (error, warning, or info)
+    required: false
+    default: error
+  config:
+    description: Path to a Scour config file
+    required: false
+  version:
+    description: Scour version to install
+    required: false
+    default: latest
+  exit-zero:
+    description: Suppress issue-based failures
+    required: false
+    default: "false"
+  triage:
+    description: Append triage output to the step summary
+    required: false
+    default: "false"
+outputs:
+  total:
+    description: Total findings
+    value: ${{ steps.scour.outputs.total }}
+  errors:
+    description: Error findings
+    value: ${{ steps.scour.outputs.errors }}
+  warnings:
+    description: Warning findings
+    value: ${{ steps.scour.outputs.warnings }}
+  info:
+    description: Informational findings
+    value: ${{ steps.scour.outputs.info }}
+  blockers:
+    description: Blocker triage findings
+    value: ${{ steps.scour.outputs.blockers }}
+  fix-now:
+    description: Fix-now triage findings
+    value: ${{ steps.scour.outputs.fix-now }}
+  review:
+    description: Review triage findings
+    value: ${{ steps.scour.outputs.review }}
+  cleanup:
+    description: Cleanup triage findings
+    value: ${{ steps.scour.outputs.cleanup }}
+  json:
+    description: Full Scour JSON report
+    value: ${{ steps.scour.outputs.json }}
+runs:
+  using: composite
+  steps:
+    - name: Run Scour
+      id: scour
+      shell: bash
+      env:
+        SCOUR_INPUT_SINCE: ${{ inputs.since }}
+        SCOUR_INPUT_STAGED: ${{ inputs.staged }}
+        SCOUR_INPUT_ALL: ${{ inputs.all }}
+        SCOUR_INPUT_FORMAT: ${{ inputs.format }}
+        SCOUR_INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        SCOUR_INPUT_CONFIG: ${{ inputs.config }}
+        SCOUR_INPUT_VERSION: ${{ inputs.version }}
+        SCOUR_INPUT_EXIT_ZERO: ${{ inputs.exit-zero }}
+        SCOUR_INPUT_TRIAGE: ${{ inputs.triage }}
+      run: "$GITHUB_ACTION_PATH/scripts/run-action.sh"
