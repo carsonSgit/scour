@@ -10,7 +10,7 @@ Fast pre-merge checks for repo hygiene, config drift, and PR mistakes.
 nimble build
 nimble run
 nimble test
-nim c -r src/scour.nim -- --help
+./scour --help
 ```
 
 ## Automation
@@ -20,11 +20,46 @@ Pull requests and pushes to `main` run the CI workflow:
 ```sh
 nimble build -y
 nimble test -y
-nim c -r src/scour.nim -- --help
-nim c -r src/scour.nim -- --version
+bash tests/test_distribution.sh
+./scour --help
+./scour --version
 ```
 
-Releases are built by `.github/workflows/release.yml`. Pushing a `v*` tag publishes release archives for Linux, macOS, and Windows. The release workflow can also be started manually from GitHub Actions to validate packaging before tagging.
+## Install
+
+Install the latest Linux or macOS release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/carsonSgit/scour/main/scripts/install.sh | sh
+```
+
+Pin a release or change the destination with `SCOUR_VERSION=v0.2.0` and
+`SCOUR_INSTALL_DIR=/usr/local/bin`. Release archives support Linux x86_64,
+Linux ARM64, macOS Intel, macOS Apple Silicon, and Windows x86_64. Windows
+users should download the ZIP archive from GitHub Releases and place
+`scour.exe` on `PATH`.
+
+## GitHub Action
+
+Use Scour in a Linux GitHub Actions job:
+
+```yaml
+- uses: carsonSgit/scour@v1
+  with:
+    fail-on: warning
+    triage: "true"
+```
+
+Inputs are `since`, `staged`, `all`, `format`, `fail-on`, `config`, `version`,
+`exit-zero`, and `triage`. Outputs are `total`, `errors`, `warnings`, `info`,
+`blockers`, `fix-now`, `review`, `cleanup`, and `json`.
+
+## Releases
+
+Releases are built by `.github/workflows/release.yml`. Pushing a `v*` tag
+publishes five platform archives and a SHA-256 checksum file. Before tagging,
+run the workflow manually with the intended version to validate packaging on
+all five hosted runners.
 
 ## CI Output
 
