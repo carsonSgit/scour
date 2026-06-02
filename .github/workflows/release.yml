@@ -1,22 +1,119 @@
 name: Release
 
+# Auto-release on every merge to main. git-cliff reads Conventional Commits to
+# compute the next semver (feat -> minor, fix/etc -> patch, breaking -> major),
+# the version is rewritten into source, CHANGELOG.md is updated, and a
+# multi-platform GitHub release is published — no manual tagging required.
+#
+# workflow_dispatch with an explicit `version` input forces that exact version.
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       version:
-        description: Version to package, such as v0.2.0
-        required: true
+        description: Exact version to release, bare semver such as 0.2.0 (overrides auto-detection)
+        required: false
         type: string
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: write
 
+# Never abort an in-flight publish; let releases serialize.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.commit.outputs.sha }}
+      should_release: ${{ steps.resolve.outputs.should_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip release commits
+        id: guard
+        run: |
+          msg=$(git log -1 --pretty=%s)
+          if [[ "$msg" == chore\(release\):* ]]; then
+            echo "head is a release commit; skipping" >&2
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install git-cliff
+        if: steps.guard.outputs.skip != 'true'
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2
+        with:
+          tool: git-cliff
+
+      - name: Resolve version and release decision
+        id: resolve
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          current="v$(grep -E '^version' scour.nimble | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')"
+          if [[ -n "$INPUT_VERSION" ]]; then
+            next="v${INPUT_VERSION#v}"
+          else
+            next="$(git cliff --bumped-version)"
+          fi
+          echo "current=$current next=$next"
+          if [[ -z "$next" || "$next" == "$current" ]]; then
+            echo "No releasable change ($current -> $next); skipping."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump version in source
+        if: steps.resolve.outputs.should_release == 'true'
+        run: bash scripts/bump_version.sh "${{ steps.resolve.outputs.version }}"
+
+      - name: Update CHANGELOG and release notes
+        if: steps.resolve.outputs.should_release == 'true'
+        env:
+          TAG: v${{ steps.resolve.outputs.version }}
+        run: |
+          git cliff --tag "$TAG" --output CHANGELOG.md
+          git cliff --tag "$TAG" --unreleased --strip all --output release-notes.md
+
+      - name: Commit and push bump
+        id: commit
+        if: steps.resolve.outputs.should_release == 'true'
+        run: |
+          version="${{ steps.resolve.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scour.nimble src/scourpkg/help.nim CHANGELOG.md
+          git commit -m "chore(release): v${version} [skip ci]"
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release notes
+        if: steps.resolve.outputs.should_release == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
   build:
     name: Build ${{ matrix.target }}
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -28,8 +125,19 @@ jobs:
           - { os: macos-14, target: macos-aarch64, binary: scour }
           - { os: windows-latest, target: windows-x86_64, binary: scour.exe }
     steps:
-      - uses: actions/checkout@v4
-      - uses: jiro4989/setup-nim-action@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - name: Cache Nim toolchain and nimble packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.choosenim
+            ~/.nimble
+          key: nim-${{ runner.os }}-2.2.10-${{ hashFiles('scour.nimble') }}
+          restore-keys: |
+            nim-${{ runner.os }}-2.2.10-
+      - uses: jiro4989/setup-nim-action@cb1fc1270b117457dd0d9f610ec981fad3369cec # v2
         with:
           nim-version: "2.2.10"
       - name: Build release binary
@@ -37,7 +145,7 @@ jobs:
       - name: Package Unix archive
         if: runner.os != 'Windows'
         env:
-          VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          VERSION: v${{ needs.prepare.outputs.version }}
         run: |
           mkdir package
           cp "${{ matrix.binary }}" README.md package/
@@ -46,12 +154,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          VERSION: v${{ needs.prepare.outputs.version }}
         run: |
           New-Item -ItemType Directory -Path package
           Copy-Item "${{ matrix.binary }}", README.md package/
           Compress-Archive -Path package/* -DestinationPath "scour-$env:VERSION-${{ matrix.target }}.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: scour-${{ matrix.target }}
           path: scour-*
@@ -59,17 +167,23 @@ jobs:
 
   publish:
     name: Publish GitHub release
-    needs: build
+    needs: [prepare, build]
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
           merge-multiple: true
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum scour-* > "scour-${GITHUB_REF_NAME}-checksums.txt"
-      - uses: softprops/action-gh-release@v2
+        env:
+          VERSION: v${{ needs.prepare.outputs.version }}
+        run: sha256sum scour-* > "scour-${VERSION}-checksums.txt"
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          files: dist/*
+          tag_name: v${{ needs.prepare.outputs.version }}
+          target_commitish: ${{ needs.prepare.outputs.sha }}
+          name: scour release v${{ needs.prepare.outputs.version }}
+          body_path: dist/release-notes.md
+          files: dist/scour-*
