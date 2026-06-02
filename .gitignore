@@ -1,2 +1,6 @@
 PRD.md
 scour
+tests/test_cli_setup
+demo/reports/
+demo/react-doctor-workspace/
+demo/workspace/

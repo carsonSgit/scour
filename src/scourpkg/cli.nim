@@ -21,6 +21,8 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
       options.showHelp = true
     of "--version":
       options.showVersion = true
+    of "--score":
+      options.scoreOnly = true
     of "--staged":
       options.staged = true
     of "--all":
@@ -38,12 +40,13 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
     of "--format":
       inc index
       if index >= args.len:
-        fatal("--format requires text, json, or github")
+        fatal("--format requires text, json, github, or doctor")
       options.formatExplicit = true
       case args[index]
       of "text": options.outputFormat = formatText
       of "json": options.outputFormat = formatJson
       of "github": options.outputFormat = formatGitHub
+      of "doctor": options.outputFormat = formatDoctor
       else: fatal("invalid --format value: " & args[index])
     of "--fail-on":
       inc index
@@ -109,9 +112,13 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
   if options.command == commandTriage and options.formatExplicit:
     fatal("--format cannot be used with triage")
 
+  if options.scoreOnly and options.command != commandScan:
+    fatal("--score cannot be used with discovery commands")
+
   if options.command notin {commandScan, commandTriage} and (
       options.staged or options.all or options.sinceRef.len > 0 or
-      options.failOnExplicit or options.exitZero or options.colorExplicit):
+      options.failOnExplicit or options.exitZero or options.colorExplicit or
+      options.scoreOnly):
     fatal("scan-only options cannot be used with discovery commands")
 
   options

@@ -9,7 +9,8 @@ CLI args
        --since <ref>
        --all
        --config <path>
-       --format <text|json|github>
+       --score
+       --format <text|json|github|doctor>
        --fail-on <error|warning|info>
        --exit-zero
        --color <auto|always|never>
@@ -86,9 +87,11 @@ CLI args
        output.format config default applies unless --format was passed
        top-level fail_on config default applies unless --fail-on was passed
   -> render selected output
+       --score: print only the numeric 0-100 health score (scan commands only)
        text: pass message, issue rows, suggestions, and summary
-       json: stable summary, triage counts, and issue fields
+       json: stable summary, triage counts, weighted score, and issue fields
        github: workflow annotations, no output for a clean scan
+       doctor: mascot, score gauge, prioritized top issues, and next steps
        triage: deterministic non-empty groups followed by triage counts
   -> choose exit code
        fatal arguments or config: 2
@@ -97,9 +100,9 @@ CLI args
        otherwise: 0
   -> text output details
        pass message when no issues
-       issue rows with severity, rule id, location, and message
+       copy-safe plain-text issue blocks with severity, rule id, location, and message
        suggestions when present
-       summary counts by severity and affected files
+       line-oriented summary counts by severity and affected files
 ```
 
 # Distribution Flow

@@ -4,7 +4,8 @@ type
   OutputFormat* = enum
     formatText = "text",
     formatJson = "json",
-    formatGitHub = "github"
+    formatGitHub = "github",
+    formatDoctor = "doctor"
 
   ColorMode* = enum
     colorAuto = "auto",
@@ -20,6 +21,7 @@ type
   CliOptions* = object
     showHelp*: bool
     showVersion*: bool
+    scoreOnly*: bool
     colorMode*: ColorMode
     colorExplicit*: bool
     outputFormat*: OutputFormat

@@ -1,0 +1,24 @@
+  ╭─────────╮
+  │ ◑     ◐ │   Scour Doctor
+  │   ╱‾╲   │   10 / 100   Needs attention
+  ╰─────────╯   let's patch this up.
+
+  █████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+
+  12 issue(s) · 6 file(s) · 6 error(s) · 6 warning(s) · 2 blocker(s)
+
+Top issues
+  ✖ ci-command-drift  ·  blocker  ·  .github/workflows/ci.yml:4:14
+    Command `npm run missing` references a missing script or task target.
+  ✖ env-drift  ·  blocker  ·  app.ts:7:15
+    Environment variable MISSING_TOKEN is used but absent from env example files.
+  ✖ merge-conflict  ·  fix now  ·  app.ts:1:1
+    Merge conflict marker found.
+  ✖ debugger  ·  fix now  ·  app.ts:2:1
+    Debugger statement found.
+  ✖ focused-test  ·  fix now  ·  app.ts:3:1
+    Focused test left in source.
+  … and 7 more. Run `scour --all --format json` for the full list.
+
+Paste this report to your agent or fix the issues yourself, then re-run `scour --format doctor`.
+Scour Doctor is clear when the score reaches 100 / 100.
