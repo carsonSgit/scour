@@ -107,6 +107,25 @@ dirty fixture repositories. Exact snapshots cover text, JSON, GitHub
 annotations, triage output, staged changes, ref comparisons, explicit paths,
 config overrides, thresholds, and exit-zero behavior.
 
+## Interactive Demo
+
+Create a disposable nested repository that demonstrates all 13 implemented
+rules:
+
+```sh
+nimble build
+bash demo/setup.sh
+cd demo/workspace
+../../scour --all
+../../scour triage --all
+../../scour
+../../scour rules
+```
+
+The first two scans show the 12 static findings. The default scan also exposes
+`package-lock-drift` through a staged manifest-only edit under `staged/`. Run
+`demo/setup.sh` again to reset the workspace.
+
 ## Rule Discovery
 
 List implemented rules or explain one rule without running a scan:
