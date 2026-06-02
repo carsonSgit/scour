@@ -101,3 +101,24 @@ CLI args
        suggestions when present
        summary counts by severity and affected files
 ```
+
+# Distribution Flow
+
+```text
+GitHub Action (Linux only)
+  -> install requested release into runner temp storage
+  -> run JSON scan to populate Action outputs
+  -> run selected output format and preserve Scour exit code
+  -> optionally append triage report to step summary
+
+scripts/install.sh (Linux and macOS)
+  -> resolve latest or pinned vX.Y.Z release
+  -> select OS and architecture archive
+  -> download archive and checksum file
+  -> verify SHA-256, extract, and atomically install scour
+
+release workflow
+  -> build native binaries on five hosted runners
+  -> package scour and README.md into versioned archives
+  -> generate SHA-256 checksums and publish tagged releases
+```
