@@ -3,7 +3,10 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
-## [unreleased]
+## [0.2.0] - 2026-06-02
+
+### Build & CI
+- Auto-release on merge to main via git-cliff
 
 ### Features
 - Add Scour Doctor score and doctor output format
