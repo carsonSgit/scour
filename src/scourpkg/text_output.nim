@@ -47,6 +47,20 @@ proc location*(issue: Issue): string =
     if issue.column > 0:
       result.add(":" & $issue.column)
 
+proc addIssueBlock*(lines: var seq[string]; issue: Issue;
+    colors = false) =
+  let label = severityLabel(issue.severity).toUpperAscii()
+  let color =
+    case issue.severity
+    of severityError: Red
+    of severityWarning: Yellow
+    of severityInfo: Blue
+  lines.add(fmt"{colorize(label, color, colors)} {issue.ruleId}")
+  lines.add("  " & location(issue))
+  lines.add("  " & issue.message)
+  if issue.suggestion.len > 0:
+    lines.add("  Suggestion: " & issue.suggestion)
+
 proc renderIssues*(issues: openArray[Issue]; mode = colorNever): string =
   let colors = useColor(mode)
   if issues.len == 0:
@@ -54,22 +68,21 @@ proc renderIssues*(issues: openArray[Issue]; mode = colorNever): string =
 
   var lines: seq[string]
   let summary = summarizeIssues(issues)
-  lines.add(colorize(fmt"Scour found {summary.total} issue(s).", Bold, colors))
+  lines.add(colorize(fmt"Scour found {summary.total} issue(s)", Bold, colors))
+  lines.add("")
+  lines.add("Issues")
   lines.add("")
 
   for issue in issues:
-    let label = severityLabel(issue.severity)
-    let color =
-      case issue.severity
-      of severityError: Red
-      of severityWarning: Yellow
-      of severityInfo: Blue
-    lines.add(fmt"{colorize(label, color, colors)} {issue.ruleId} {location(issue)} - {issue.message}")
-    if issue.suggestion.len > 0:
-      lines.add("  Suggestion: " & issue.suggestion)
+    lines.addIssueBlock(issue, colors)
     lines.add("")
 
-  lines.add(fmt"Summary: {summary.total} issue(s), {summary.bySeverity.errors} error(s), {summary.bySeverity.warnings} warning(s), {summary.bySeverity.infos} info(s), {summary.affectedFiles} file(s)")
+  lines.add("Summary")
+  lines.add(fmt"  Issues: {summary.total}")
+  lines.add(fmt"  Errors: {summary.bySeverity.errors}")
+  lines.add(fmt"  Warnings: {summary.bySeverity.warnings}")
+  lines.add(fmt"  Info: {summary.bySeverity.infos}")
+  lines.add(fmt"  Files: {summary.affectedFiles}")
   lines.join("\n") & "\n"
 
 proc renderIssues*(issues: openArray[Issue]; options: CliOptions): string =
