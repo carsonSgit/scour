@@ -4,3 +4,6 @@ tests/test_cli_setup
 demo/reports/
 demo/react-doctor-workspace/
 demo/workspace/
+.superpowers/
+site/node_modules/
+site/dist/
