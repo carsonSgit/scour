@@ -3,6 +3,33 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.3.0] - 2026-06-10
+
+### Bug Fixes
+- Drop bottom border on both final rules-grid cells
+
+### Build & CI
+- Deploy landing page to GitHub Pages
+
+### Features
+- Scaffold Vite + React + Tailwind landing page
+- Theme hook with system default and localStorage persistence
+- Sticky nav with scroll-aware background and theme toggle
+- Hero with install command and copy feedback
+- Terminal demo timeline data with accurate severities
+- Animated terminal demo with replay
+- Rules grid with catalog-accurate severities
+- GitHub Action section with hand-highlighted YAML
+- Assemble landing page with footer
+- Breathing dither shimmer in hero with masked bottom fade
+- Waking severity-dot dither and floating nav
+- Severity dots wake along a sweeping scan wave
+- Full-page diagonal scan wave with organic band width
+- Sleeker dot animation
+
+### Miscellaneous
+- Migrate to pnpm
+
 ## [0.2.0] - 2026-06-02
 
 ### Build & CI
