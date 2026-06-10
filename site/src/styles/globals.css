@@ -66,10 +66,45 @@ body {
   opacity: var(--dither-base-opacity);
 }
 
+/* A diagonal band sweeps the field every 14s (sweep ~6s, quiet ~8s); the
+   severity dots are only visible inside the band, so they wake as the scan
+   front passes and fade behind it. */
+.dither-scan {
+  -webkit-mask-image: linear-gradient(
+    105deg,
+    transparent 44%,
+    black 48%,
+    black 52%,
+    transparent 56%
+  );
+  mask-image: linear-gradient(
+    105deg,
+    transparent 44%,
+    black 48%,
+    black 52%,
+    transparent 56%
+  );
+  -webkit-mask-size: 300% 100%;
+  mask-size: 300% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  animation: dither-scan 14s linear infinite;
+}
+
+@keyframes dither-scan {
+  0%,
+  55% {
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
+  }
+  100% {
+    -webkit-mask-position: 0% 0;
+    mask-position: 0% 0;
+  }
+}
+
 .dither-wake {
-  opacity: 0;
-  animation: dither-wake var(--wake-duration, 16s) ease-in-out infinite;
-  animation-delay: var(--wake-delay, 0s);
+  opacity: var(--dither-bloom);
 }
 
 /* Each layer tiles one 2px dot inside a 32px SVG cell, scaled to ~2x. Different
@@ -78,45 +113,25 @@ body {
 .dither-wake-error {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='4' y='6' fill='%23f87171'/%3E%3C/svg%3E");
   background-size: 58px 58px;
-  --wake-duration: 11s;
-  --wake-delay: 0s;
 }
 
 .dither-wake-warn {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='20' y='12' fill='%23fbbf24'/%3E%3C/svg%3E");
   background-size: 66px 66px;
-  --wake-duration: 13s;
-  --wake-delay: -5s;
 }
 
 .dither-wake-info {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='10' y='24' fill='%2360a5fa'/%3E%3C/svg%3E");
   background-size: 74px 74px;
-  --wake-duration: 17s;
-  --wake-delay: -9s;
 }
 
 .dither-wake-ok {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='26' y='2' fill='%234ade80'/%3E%3C/svg%3E");
   background-size: 82px 82px;
-  --wake-duration: 19s;
-  --wake-delay: -13s;
-}
-
-@keyframes dither-wake {
-  0%,
-  38%,
-  72%,
-  100% {
-    opacity: 0;
-  }
-  55% {
-    opacity: var(--dither-bloom);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dither-wake {
+  .dither-scan {
     animation: none;
     opacity: 0;
   }
