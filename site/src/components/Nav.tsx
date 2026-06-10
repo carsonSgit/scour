@@ -1,28 +1,11 @@
-import { useEffect, useState } from 'react'
 import { Moon, Sun } from 'lucide-react'
 import { useTheme } from '../lib/useTheme'
 
 export function Nav() {
   const { theme, toggle } = useTheme()
-  const [scrolled, setScrolled] = useState(false)
-
-  useEffect(() => {
-    const hero = document.getElementById('hero')
-    if (!hero) return
-    const observer = new IntersectionObserver(
-      ([entry]) => setScrolled(!entry.isIntersecting),
-      { rootMargin: '-52px 0px 0px 0px' },
-    )
-    observer.observe(hero)
-    return () => observer.disconnect()
-  }, [])
 
   return (
-    <header
-      className={`sticky top-0 z-10 flex h-[52px] items-center justify-between px-7 transition-colors duration-200 md:px-12 xl:px-16 ${
-        scrolled ? 'bg-surface-raised/80 backdrop-blur-sm' : 'bg-transparent'
-      }`}
-    >
+    <header className="relative z-10 flex h-[52px] items-center justify-between px-7 md:px-12 xl:px-16">
       <a href="#" className="text-[15px] font-bold tracking-[-0.3px] text-primary">
         scour
       </a>
