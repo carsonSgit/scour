@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f8f8f8;
+  --surface: #ffffff;
+  --surface-raised: #f0f0f0;
+  --border: #e4e4e7;
+  --border-muted: #f0f0f0;
+
+  --text-primary: #0f0f0f;
+  --text-secondary: #52525b;
+  --text-muted: #a1a1aa;
+  --text-faint: #d4d4d8;
+
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+
+  --severity-error: #f87171;
+  --severity-warn: #fbbf24;
+  --severity-info: #60a5fa;
+  --severity-ok: #4ade80;
+}
+
+.dark {
+  --background: #090909;
+  --surface: #0d0d0d;
+  --surface-raised: #141414;
+  --border: #1a1a1a;
+  --border-muted: #111111;
+
+  --text-primary: #f0f0f0;
+  --text-secondary: #888888;
+  --text-muted: #444444;
+  --text-faint: #2a2a2a;
+
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-background font-sans text-[0.9375rem] leading-relaxed text-secondary antialiased transition-colors duration-200;
+}
+
+.dither,
+.dither-light {
+  background-size: 4px 4px;
+}
+
+.dither {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='white'/%3E%3Crect width='1' height='1' x='2' y='2' fill='white'/%3E%3C/svg%3E");
+  opacity: 0.025;
+}
+
+.dither-light {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='black'/%3E%3Crect width='1' height='1' x='2' y='2' fill='black'/%3E%3C/svg%3E");
+  opacity: 0.04;
+}
