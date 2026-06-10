@@ -31,7 +31,7 @@ export function Hero() {
       <div aria-hidden className="dither-mask pointer-events-none absolute inset-x-0 -top-[52px] bottom-0">
         <div className="dither-base absolute inset-0" />
       </div>
-      <div className="relative mx-auto w-full max-w-[560px]">
+      <div className="relative mx-auto w-full max-w-[640px]">
         <p className="font-mono text-[11px] tracking-[2px] text-faint">v0.2.0</p>
         <h1 className="mt-5 text-[26px] font-bold leading-[1.15] tracking-[-0.03em] text-primary sm:text-[32px]">
           Pre-merge hygiene,
@@ -43,8 +43,8 @@ export function Hero() {
           seconds — 13 rules, zero config required.
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-3.5">
-          <code className="flex max-w-full items-center gap-3 rounded bg-surface px-4 py-2.5 font-mono text-[13px] text-accent">
-            <span className="overflow-x-auto whitespace-nowrap">{INSTALL_COMMAND}</span>
+          <code className="flex w-full items-center gap-3 rounded bg-surface px-4 py-2.5 font-mono text-[13px] text-accent">
+            <span className="min-w-0 whitespace-normal break-all">{INSTALL_COMMAND}</span>
             <CopyButton />
           </code>
           <p className="text-[13px] text-muted">
