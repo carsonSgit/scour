@@ -7,7 +7,10 @@ import { Footer } from './components/Footer'
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="relative isolate min-h-screen overflow-hidden bg-background">
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="dither-band" />
+      </div>
       <Nav />
       <main>
         <Hero />
