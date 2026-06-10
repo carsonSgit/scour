@@ -28,8 +28,10 @@ function CopyButton() {
 export function Hero() {
   return (
     <section id="hero" className="relative px-5 pb-[72px] pt-20 sm:px-7">
-      <div aria-hidden className="dither pointer-events-none absolute inset-0 hidden dark:block" />
-      <div aria-hidden className="dither-light pointer-events-none absolute inset-0 dark:hidden" />
+      <div aria-hidden className="dither-mask pointer-events-none absolute inset-0">
+        <div className="dither-layer absolute inset-0" />
+        <div className="dither-layer dither-layer-b absolute inset-0" />
+      </div>
       <div className="relative mx-auto w-full max-w-[560px]">
         <p className="font-mono text-[11px] tracking-[2px] text-faint">v0.2.0</p>
         <h1 className="mt-5 text-[26px] font-bold leading-[1.15] tracking-[-0.03em] text-primary sm:text-[32px]">

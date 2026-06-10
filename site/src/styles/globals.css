@@ -21,6 +21,11 @@
   --severity-warn: #fbbf24;
   --severity-info: #60a5fa;
   --severity-ok: #4ade80;
+
+  --dither-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='black'/%3E%3Crect width='1' height='1' x='2' y='2' fill='black'/%3E%3C/svg%3E");
+  --dither-peak: 0.06;
+  --dither-trough: 0.025;
+  --dither-static: 0.04;
 }
 
 .dark {
@@ -37,6 +42,11 @@
 
   --accent: #818cf8;
   --accent-hover: #a5b4fc;
+
+  --dither-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='white'/%3E%3Crect width='1' height='1' x='2' y='2' fill='white'/%3E%3C/svg%3E");
+  --dither-peak: 0.05;
+  --dither-trough: 0.02;
+  --dither-static: 0.025;
 }
 
 html {
@@ -47,17 +57,39 @@ body {
   @apply bg-background font-sans text-[0.9375rem] leading-relaxed text-secondary antialiased transition-colors duration-200;
 }
 
-.dither,
-.dither-light {
+.dither-mask {
+  -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+}
+
+.dither-layer {
+  background-image: var(--dither-image);
   background-size: 4px 4px;
+  animation: dither-breathe 8s ease-in-out infinite;
 }
 
-.dither {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='white'/%3E%3Crect width='1' height='1' x='2' y='2' fill='white'/%3E%3C/svg%3E");
-  opacity: 0.025;
+.dither-layer-b {
+  background-position: 2px 2px;
+  animation-delay: -4s;
 }
 
-.dither-light {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='black'/%3E%3Crect width='1' height='1' x='2' y='2' fill='black'/%3E%3C/svg%3E");
-  opacity: 0.04;
+@keyframes dither-breathe {
+  0%,
+  100% {
+    opacity: var(--dither-peak);
+  }
+  50% {
+    opacity: var(--dither-trough);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dither-layer {
+    animation: none;
+    opacity: var(--dither-static);
+  }
+
+  .dither-layer-b {
+    opacity: 0;
+  }
 }
