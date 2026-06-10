@@ -24,7 +24,7 @@ export function RulesGrid() {
           {rules.map(([name, severity]) => (
             <div
               key={name}
-              className="flex items-center justify-between border-b border-edge-muted py-1.5 last:border-b-0"
+              className="flex items-center justify-between border-b border-edge-muted py-1.5 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0"
             >
               <span className="font-mono text-xs text-muted">{name}</span>
               <span className={`font-mono text-[11px] ${severityColor[severity]}`}>
