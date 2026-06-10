@@ -30,12 +30,6 @@ export function Hero() {
     <section id="hero" className="relative px-5 pb-[72px] pt-20 sm:px-7">
       <div aria-hidden className="dither-mask pointer-events-none absolute inset-x-0 -top-[52px] bottom-0">
         <div className="dither-base absolute inset-0" />
-        <div className="dither-scan absolute inset-0">
-          <div className="dither-wake dither-wake-error absolute inset-0" />
-          <div className="dither-wake dither-wake-warn absolute inset-0" />
-          <div className="dither-wake dither-wake-info absolute inset-0" />
-          <div className="dither-wake dither-wake-ok absolute inset-0" />
-        </div>
       </div>
       <div className="relative mx-auto w-full max-w-[560px]">
         <p className="font-mono text-[11px] tracking-[2px] text-faint">v0.2.0</p>

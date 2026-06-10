@@ -66,72 +66,63 @@ body {
   opacity: var(--dither-base-opacity);
 }
 
-/* A diagonal band sweeps the field every 14s (sweep ~6s, quiet ~8s); the
-   severity dots are only visible inside the band, so they wake as the scan
-   front passes and fade behind it. */
-.dither-scan {
-  -webkit-mask-image: linear-gradient(
-    105deg,
-    transparent 44%,
-    black 48%,
-    black 52%,
-    transparent 56%
-  );
-  mask-image: linear-gradient(
-    105deg,
-    transparent 44%,
-    black 48%,
-    black 52%,
-    transparent 56%
-  );
-  -webkit-mask-size: 300% 100%;
-  mask-size: 300% 100%;
+/* A wavy diagonal scan band sweeps the whole page top-to-bottom every 20s
+   (~9s quiet, ~11s sweep). The band element carries the four severity dot
+   patterns as stacked backgrounds and is clipped by a hand-drawn SVG band
+   whose thickness varies along the front. Its transform sweeps it down the
+   page while a counter background-position animation holds the dot patterns
+   still in page space, so dots wake in place as the front passes. */
+.dither-band {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 80vh;
+  opacity: var(--dither-bloom);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='4' y='6' fill='%23f87171'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='20' y='12' fill='%23fbbf24'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='10' y='24' fill='%2360a5fa'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='26' y='2' fill='%234ade80'/%3E%3C/svg%3E");
+  background-size:
+    58px 58px,
+    66px 66px,
+    74px 74px,
+    82px 82px;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='200'%3E%3Cfilter id='s' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeGaussianBlur stdDeviation='8'/%3E%3C/filter%3E%3Cpath filter='url(%23s)' fill='white' d='M0,95 C40,82 80,108 120,92 C160,76 200,96 240,72 C280,50 320,64 360,38 C375,30 390,28 400,25 L400,75 C360,88 320,110 280,98 C240,86 200,140 160,128 C120,116 80,150 40,138 C20,132 10,158 0,165 Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='200'%3E%3Cfilter id='s' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeGaussianBlur stdDeviation='8'/%3E%3C/filter%3E%3Cpath filter='url(%23s)' fill='white' d='M0,95 C40,82 80,108 120,92 C160,76 200,96 240,72 C280,50 320,64 360,38 C375,30 390,28 400,25 L400,75 C360,88 320,110 280,98 C240,86 200,140 160,128 C120,116 80,150 40,138 C20,132 10,158 0,165 Z'/%3E%3C/svg%3E");
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
-  animation: dither-scan 14s linear infinite;
+  will-change: transform;
+  animation:
+    dither-sweep 20s linear infinite,
+    dither-counter 20s linear infinite;
 }
 
-@keyframes dither-scan {
+@keyframes dither-sweep {
   0%,
-  55% {
-    -webkit-mask-position: 100% 0;
-    mask-position: 100% 0;
+  45% {
+    transform: translate3d(-8vw, -90vh, 0);
   }
   100% {
-    -webkit-mask-position: 0% 0;
-    mask-position: 0% 0;
+    transform: translate3d(8vw, 280vh, 0);
   }
 }
 
-.dither-wake {
-  opacity: var(--dither-bloom);
-}
-
-/* Each layer tiles one 2px dot inside a 32px SVG cell, scaled to ~2x. Different
-   in-tile dot positions and co-prime-ish tile sizes keep the four colors from
-   ever forming a visible super-grid. */
-.dither-wake-error {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='4' y='6' fill='%23f87171'/%3E%3C/svg%3E");
-  background-size: 58px 58px;
-}
-
-.dither-wake-warn {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='20' y='12' fill='%23fbbf24'/%3E%3C/svg%3E");
-  background-size: 66px 66px;
-}
-
-.dither-wake-info {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='10' y='24' fill='%2360a5fa'/%3E%3C/svg%3E");
-  background-size: 74px 74px;
-}
-
-.dither-wake-ok {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='26' y='2' fill='%234ade80'/%3E%3C/svg%3E");
-  background-size: 82px 82px;
+@keyframes dither-counter {
+  0%,
+  45% {
+    background-position: 8vw 90vh;
+  }
+  100% {
+    background-position: -8vw -280vh;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dither-scan {
+  .dither-band {
     animation: none;
     opacity: 0;
   }
