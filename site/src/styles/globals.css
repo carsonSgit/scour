@@ -24,7 +24,7 @@
 
   --dither-base-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='black'/%3E%3Crect width='1' height='1' x='2' y='2' fill='black'/%3E%3C/svg%3E");
   --dither-base-opacity: 0.04;
-  --dither-bloom: 0.5;
+  --dither-bloom: 0.7;
 }
 
 .dark {
@@ -44,7 +44,7 @@
 
   --dither-base-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='white'/%3E%3Crect width='1' height='1' x='2' y='2' fill='white'/%3E%3C/svg%3E");
   --dither-base-opacity: 0.025;
-  --dither-bloom: 0.45;
+  --dither-bloom: 0.6;
 }
 
 html {
@@ -66,64 +66,92 @@ body {
   opacity: var(--dither-base-opacity);
 }
 
-/* A wavy diagonal scan band sweeps the whole page top-to-bottom every 20s
-   (~9s quiet, ~11s sweep). The band element carries the four severity dot
-   patterns as stacked backgrounds and is clipped by a hand-drawn SVG band
-   whose thickness varies along the front. Its transform sweeps it down the
-   page while a counter background-position animation holds the dot patterns
-   still in page space, so dots wake in place as the front passes. */
+/* A wavy scan front sweeps the whole page top-to-bottom every 12s with a
+   short rest. The band element carries two mask layers that union together:
+   a hand-drawn wavy SVG front (full brightness, pinned to the element's
+   bottom edge) and a long linear-gradient trail above it, so dots wake as
+   the front passes and stay lit for ~150vh behind it, slowly fading. The
+   severity dots live on a child layer as a single repeating tile (every dot
+   at a fixed, non-overlapping point) that counter-transforms to hold still
+   in page space. Both motions are transforms, so the whole effect runs on
+   the compositor; opacity eases to 0 at cycle end to avoid a pop on loop. */
 .dither-band {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 80vh;
+  height: 220vh;
   opacity: var(--dither-bloom);
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='4' y='6' fill='%23f87171'/%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='20' y='12' fill='%23fbbf24'/%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='10' y='24' fill='%2360a5fa'/%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='26' y='2' fill='%234ade80'/%3E%3C/svg%3E");
-  background-size:
-    58px 58px,
-    66px 66px,
-    74px 74px,
-    82px 82px;
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='200'%3E%3Cfilter id='s' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeGaussianBlur stdDeviation='8'/%3E%3C/filter%3E%3Cpath filter='url(%23s)' fill='white' d='M0,95 C40,82 80,108 120,92 C160,76 200,96 240,72 C280,50 320,64 360,38 C375,30 390,28 400,25 L400,75 C360,88 320,110 280,98 C240,86 200,140 160,128 C120,116 80,150 40,138 C20,132 10,158 0,165 Z'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='200'%3E%3Cfilter id='s' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeGaussianBlur stdDeviation='8'/%3E%3C/filter%3E%3Cpath filter='url(%23s)' fill='white' d='M0,95 C40,82 80,108 120,92 C160,76 200,96 240,72 C280,50 320,64 360,38 C375,30 390,28 400,25 L400,75 C360,88 320,110 280,98 C240,86 200,140 160,128 C120,116 80,150 40,138 C20,132 10,158 0,165 Z'/%3E%3C/svg%3E");
-  -webkit-mask-size: 100% 100%;
-  mask-size: 100% 100%;
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.5)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='200'%3E%3Cfilter id='s' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeGaussianBlur stdDeviation='8'/%3E%3C/filter%3E%3Cpath filter='url(%23s)' fill='white' d='M0,95 C40,82 80,108 120,92 C160,76 200,96 240,72 C280,50 320,64 360,38 C375,30 390,28 400,25 L400,75 C360,88 320,110 280,98 C240,86 200,140 160,128 C120,116 80,150 40,138 C20,132 10,158 0,165 Z'/%3E%3C/svg%3E");
+  mask-image:
+    linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.5)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='200'%3E%3Cfilter id='s' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeGaussianBlur stdDeviation='8'/%3E%3C/filter%3E%3Cpath filter='url(%23s)' fill='white' d='M0,95 C40,82 80,108 120,92 C160,76 200,96 240,72 C280,50 320,64 360,38 C375,30 390,28 400,25 L400,75 C360,88 320,110 280,98 C240,86 200,140 160,128 C120,116 80,150 40,138 C20,132 10,158 0,165 Z'/%3E%3C/svg%3E");
+  -webkit-mask-size:
+    100% 85%,
+    100% 37%;
+  mask-size:
+    100% 85%,
+    100% 37%;
+  -webkit-mask-position:
+    top,
+    bottom;
+  mask-position:
+    top,
+    bottom;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
-  will-change: transform;
-  animation:
-    dither-sweep 20s linear infinite,
-    dither-counter 20s linear infinite;
+  will-change: transform, opacity;
+  animation: dither-sweep 12s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
+.dither-dots {
+  position: absolute;
+  top: 0;
+  left: -8vw;
+  right: -8vw;
+  height: 380vh;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Crect width='2' height='2' x='12' y='6' fill='%23f87171'/%3E%3Crect width='2' height='2' x='58' y='10' fill='%23fbbf24'/%3E%3Crect width='2' height='2' x='34' y='22' fill='%234ade80'/%3E%3Crect width='2' height='2' x='84' y='26' fill='%2360a5fa'/%3E%3Crect width='2' height='2' x='8' y='42' fill='%2360a5fa'/%3E%3Crect width='2' height='2' x='56' y='38' fill='%23f87171'/%3E%3Crect width='2' height='2' x='30' y='56' fill='%23fbbf24'/%3E%3Crect width='2' height='2' x='78' y='52' fill='%234ade80'/%3E%3Crect width='2' height='2' x='10' y='74' fill='%234ade80'/%3E%3Crect width='2' height='2' x='68' y='70' fill='%23f87171'/%3E%3Crect width='2' height='2' x='44' y='78' fill='%2360a5fa'/%3E%3Crect width='2' height='2' x='88' y='88' fill='%23fbbf24'/%3E%3C/svg%3E");
+  background-size: 96px 96px;
+  will-change: transform;
+  animation: dither-counter 12s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/* dither-counter must exactly mirror dither-sweep (same keyframe stops,
+   same easing) so the dot layer cancels the band's motion frame-for-frame. */
 @keyframes dither-sweep {
   0%,
-  45% {
-    transform: translate3d(-8vw, -90vh, 0);
+  6% {
+    transform: translate3d(-8vw, -230vh, 0);
+    opacity: var(--dither-bloom);
+  }
+  85% {
+    opacity: var(--dither-bloom);
   }
   100% {
-    transform: translate3d(8vw, 280vh, 0);
+    transform: translate3d(8vw, 230vh, 0);
+    opacity: 0;
   }
 }
 
 @keyframes dither-counter {
   0%,
-  45% {
-    background-position: 8vw 90vh;
+  6% {
+    transform: translate3d(8vw, 230vh, 0);
   }
   100% {
-    background-position: -8vw -280vh;
+    transform: translate3d(-8vw, -230vh, 0);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dither-band {
+  .dither-band,
+  .dither-dots {
     animation: none;
+  }
+
+  .dither-band {
     opacity: 0;
   }
 }
