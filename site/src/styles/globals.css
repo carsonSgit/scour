@@ -22,10 +22,9 @@
   --severity-info: #60a5fa;
   --severity-ok: #4ade80;
 
-  --dither-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='black'/%3E%3Crect width='1' height='1' x='2' y='2' fill='black'/%3E%3C/svg%3E");
-  --dither-peak: 0.06;
-  --dither-trough: 0.025;
-  --dither-static: 0.04;
+  --dither-base-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='black'/%3E%3Crect width='1' height='1' x='2' y='2' fill='black'/%3E%3C/svg%3E");
+  --dither-base-opacity: 0.04;
+  --dither-bloom: 0.5;
 }
 
 .dark {
@@ -43,10 +42,9 @@
   --accent: #818cf8;
   --accent-hover: #a5b4fc;
 
-  --dither-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='white'/%3E%3Crect width='1' height='1' x='2' y='2' fill='white'/%3E%3C/svg%3E");
-  --dither-peak: 0.05;
-  --dither-trough: 0.02;
-  --dither-static: 0.025;
+  --dither-base-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' x='0' y='0' fill='white'/%3E%3Crect width='1' height='1' x='2' y='2' fill='white'/%3E%3C/svg%3E");
+  --dither-base-opacity: 0.025;
+  --dither-bloom: 0.45;
 }
 
 html {
@@ -62,34 +60,64 @@ body {
   mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
 }
 
-.dither-layer {
-  background-image: var(--dither-image);
-  background-size: 4px 4px;
-  animation: dither-breathe 8s ease-in-out infinite;
+.dither-base {
+  background-image: var(--dither-base-image);
+  background-size: 5px 5px;
+  opacity: var(--dither-base-opacity);
 }
 
-.dither-layer-b {
-  background-position: 2px 2px;
-  animation-delay: -4s;
+.dither-wake {
+  opacity: 0;
+  animation: dither-wake var(--wake-duration, 16s) ease-in-out infinite;
+  animation-delay: var(--wake-delay, 0s);
 }
 
-@keyframes dither-breathe {
+/* Each layer tiles one 2px dot inside a 32px SVG cell, scaled to ~2x. Different
+   in-tile dot positions and co-prime-ish tile sizes keep the four colors from
+   ever forming a visible super-grid. */
+.dither-wake-error {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='4' y='6' fill='%23f87171'/%3E%3C/svg%3E");
+  background-size: 58px 58px;
+  --wake-duration: 11s;
+  --wake-delay: 0s;
+}
+
+.dither-wake-warn {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='20' y='12' fill='%23fbbf24'/%3E%3C/svg%3E");
+  background-size: 66px 66px;
+  --wake-duration: 13s;
+  --wake-delay: -5s;
+}
+
+.dither-wake-info {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='10' y='24' fill='%2360a5fa'/%3E%3C/svg%3E");
+  background-size: 74px 74px;
+  --wake-duration: 17s;
+  --wake-delay: -9s;
+}
+
+.dither-wake-ok {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='2' height='2' x='26' y='2' fill='%234ade80'/%3E%3C/svg%3E");
+  background-size: 82px 82px;
+  --wake-duration: 19s;
+  --wake-delay: -13s;
+}
+
+@keyframes dither-wake {
   0%,
+  38%,
+  72%,
   100% {
-    opacity: var(--dither-peak);
+    opacity: 0;
   }
-  50% {
-    opacity: var(--dither-trough);
+  55% {
+    opacity: var(--dither-bloom);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dither-layer {
+  .dither-wake {
     animation: none;
-    opacity: var(--dither-static);
-  }
-
-  .dither-layer-b {
     opacity: 0;
   }
 }
