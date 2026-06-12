@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.3.0"
+version       = "0.3.1"
 author        = "carson"
 description   = "Fast pre-merge checks for repo hygiene, config drift, and PR mistakes."
 license       = "MIT"
