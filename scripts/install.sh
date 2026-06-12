@@ -26,10 +26,14 @@ case "$uname_s:$uname_m" in
   Linux:aarch64|Linux:arm64) target=linux-aarch64 ;;
   Darwin:x86_64) target=macos-x86_64 ;;
   Darwin:arm64|Darwin:aarch64) target=macos-aarch64 ;;
+  MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) target=windows-x86_64 ;;
   *) echo "scour: unsupported platform: $uname_s $uname_m" >&2; exit 1 ;;
 esac
 
-archive="scour-${version}-${target}.tar.gz"
+case "$target" in
+  windows-*) archive="scour-${version}-${target}.zip"; binary=scour.exe ;;
+  *) archive="scour-${version}-${target}.tar.gz"; binary=scour ;;
+esac
 checksums="scour-${version}-checksums.txt"
 base_url="https://github.com/$repo/releases/$release_path"
 tmp_dir=$(mktemp -d)
@@ -51,9 +55,18 @@ fi
   echo "scour: checksum verification failed for $archive" >&2
   exit 1
 }
-tar -xzf "$tmp_dir/$archive" -C "$tmp_dir"
-chmod +x "$tmp_dir/scour"
+case "$archive" in
+  *.zip)
+    command -v unzip >/dev/null 2>&1 || {
+      echo "scour: unzip is required to install $archive" >&2
+      exit 1
+    }
+    unzip -q "$tmp_dir/$archive" -d "$tmp_dir"
+    ;;
+  *) tar -xzf "$tmp_dir/$archive" -C "$tmp_dir" ;;
+esac
+chmod +x "$tmp_dir/$binary"
 mkdir -p "$install_dir"
-install "$tmp_dir/scour" "$install_dir/scour.tmp"
-mv "$install_dir/scour.tmp" "$install_dir/scour"
-echo "Installed scour to $install_dir/scour"
+install "$tmp_dir/$binary" "$install_dir/$binary.tmp"
+mv "$install_dir/$binary.tmp" "$install_dir/$binary"
+echo "Installed scour to $install_dir/$binary"
