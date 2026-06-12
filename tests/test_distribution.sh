@@ -26,6 +26,17 @@ make_release() {
   printf '%s  %s\n' "$sum" "scour-$version-$target.tar.gz" >> "$fixtures/scour-$version-checksums.txt"
 }
 
+make_windows_release() {
+  version=$1 target=$2
+  printf '#!/bin/sh\necho installed\n' > "$fixtures/scour-$version-$target.zip"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sum=$(sha256sum "$fixtures/scour-$version-$target.zip" | awk '{print $1}')
+  else
+    sum=$(shasum -a 256 "$fixtures/scour-$version-$target.zip" | awk '{print $1}')
+  fi
+  printf '%s  %s\n' "$sum" "scour-$version-$target.zip" >> "$fixtures/scour-$version-checksums.txt"
+}
+
 cat > "$bin/curl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -38,9 +49,18 @@ dest=$4
 cp "$FIXTURES/${url##*/}" "$dest"
 EOF
 chmod +x "$bin/curl"
+cat > "$bin/unzip" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+archive=$2
+dest=$4
+cp "$archive" "$dest/scour.exe"
+EOF
+chmod +x "$bin/unzip"
 
 make_release v0.2.0 linux-x86_64
 make_release v0.2.0 macos-aarch64
+make_windows_release v0.2.0 windows-x86_64
 PATH="$bin:$PATH" FIXTURES="$fixtures" SCOUR_VERSION=0.2.0 \
   SCOUR_INSTALL_DIR="$tmp/install" SCOUR_UNAME_S=Linux SCOUR_UNAME_M=x86_64 \
   "$root/scripts/install.sh"
@@ -49,6 +69,10 @@ PATH="$bin:$PATH" FIXTURES="$fixtures" SCOUR_VERSION=latest \
   SCOUR_INSTALL_DIR="$tmp/latest" SCOUR_UNAME_S=Darwin SCOUR_UNAME_M=arm64 \
   "$root/scripts/install.sh"
 [[ -x "$tmp/latest/scour" ]] || fail "latest macOS install failed"
+PATH="$bin:$PATH" FIXTURES="$fixtures" SCOUR_VERSION=0.2.0 \
+  SCOUR_INSTALL_DIR="$tmp/windows" SCOUR_UNAME_S=MINGW64_NT-10.0-26200 SCOUR_UNAME_M=x86_64 \
+  "$root/scripts/install.sh"
+[[ -x "$tmp/windows/scour.exe" ]] || fail "Git Bash Windows install failed"
 
 cp "$fixtures/scour-v0.2.0-checksums.txt" "$tmp/checksums"
 printf 'bad  scour-v0.2.0-linux-x86_64.tar.gz\n' > "$fixtures/scour-v0.2.0-checksums.txt"
