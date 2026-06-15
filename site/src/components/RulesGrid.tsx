@@ -1,4 +1,5 @@
 import { rules, type RuleSeverity } from '../lib/rules'
+import { GlitchHeading } from './GlitchHeading'
 
 const severityColor: Record<RuleSeverity, string> = {
   error: 'text-error',
@@ -10,9 +11,9 @@ export function RulesGrid() {
   return (
     <section className="px-5 py-16 sm:px-7">
       <div className="mx-auto w-full max-w-[600px]">
-        <h2 className="text-lg font-semibold tracking-[-0.02em] text-primary">
+        <GlitchHeading as="h2" className="text-lg font-semibold tracking-[-0.02em] text-primary">
           13 rules, out of the box.
-        </h2>
+        </GlitchHeading>
         <p className="mt-2">
           No config required. Override anything in{' '}
           <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-[13px] text-secondary">
