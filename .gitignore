@@ -5,5 +5,7 @@ demo/reports/
 demo/react-doctor-workspace/
 demo/workspace/
 .superpowers/
+.agents/
+.claude/
 site/node_modules/
 site/dist/

@@ -1,12 +1,14 @@
+import { GlitchHeading } from './GlitchHeading'
+
 const inputs = ['since', 'staged', 'all', 'format', 'fail-on', 'config', 'version', 'exit-zero', 'triage']
 
 export function GithubAction() {
   return (
     <section id="github-action" className="px-5 py-16 sm:px-7">
       <div className="mx-auto w-full max-w-[560px]">
-        <h2 className="text-lg font-semibold tracking-[-0.02em] text-primary">
+        <GlitchHeading as="h2" className="text-lg font-semibold tracking-[-0.02em] text-primary">
           Drop it in CI.
-        </h2>
+        </GlitchHeading>
         <p className="mt-2 mb-5">
           One step. Fails the build on errors, annotates warnings inline.
         </p>
