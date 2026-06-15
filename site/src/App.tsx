@@ -21,6 +21,9 @@ export default function App() {
         <GithubAction />
       </main>
       <Footer />
+
+      <div aria-hidden className="crt-scanlines fx-flicker pointer-events-none fixed inset-0 z-[60]" />
+      <div aria-hidden className="crt-roll pointer-events-none z-[60]" />
     </div>
   )
 }

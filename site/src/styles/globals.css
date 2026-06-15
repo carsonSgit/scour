@@ -155,3 +155,54 @@ body {
     opacity: 0;
   }
 }
+
+/* CRT hero: chromatic-aberration glitch on the headline + scanline flicker. */
+@keyframes fx-glitch {
+  0%, 100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  20% { clip-path: inset(18% 0 52% 0); transform: translate(-2px); }
+  40% { clip-path: inset(58% 0 12% 0); transform: translate(2px); }
+  60% { clip-path: inset(32% 0 40% 0); transform: translate(-1px); }
+  80% { clip-path: inset(8% 0 70% 0); transform: translate(1px); }
+}
+@keyframes fx-flicker { 0%, 100% { opacity: 0.96; } 50% { opacity: 0.86; } }
+
+.fx-glitch { animation: fx-glitch 2.6s steps(2, end) infinite; }
+.fx-flicker { animation: fx-flicker 3.5s ease-in-out infinite; }
+
+/* Page-wide CRT overlay. */
+.crt-scanlines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(127, 127, 127, 0.05) 0,
+    rgba(127, 127, 127, 0.05) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  box-shadow: inset 0 0 200px rgba(0, 0, 0, 0.18);
+}
+
+@keyframes fx-roll {
+  from { transform: translateY(-20vh); }
+  to { transform: translateY(120vh); }
+}
+
+.crt-roll {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 140px;
+  background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.05), transparent);
+  animation: fx-roll 7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-glitch,
+  .fx-flicker,
+  .crt-roll {
+    animation: none;
+  }
+
+  .crt-roll {
+    display: none;
+  }
+}
