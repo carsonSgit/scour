@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.4.0] - 2026-06-15
+
+### Features
+- Hero visuals and crt
+
 ## [0.3.1] - 2026-06-12
 
 ### Bug Fixes
