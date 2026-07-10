@@ -1,6 +1,6 @@
 import algorithm, os, osproc, sequtils, strutils, tables
 
-import ../config, ../issues, ../rule_catalog, ../scan_plan
+import ../config, ../issues, ../rule_issue, ../scan_plan
 
 const Lockfiles = [
   "package-lock.json",
@@ -55,17 +55,6 @@ proc repositoryFiles(plan: ScanPlan): seq[string] =
   result = result.deduplicate()
   result.sort()
 
-proc warning(ruleId, category, file, message: string): Issue =
-  let definition = findRule(ruleId)
-  Issue(
-    ruleId: ruleId,
-    severity: definition.defaultSeverity.toSeverity(),
-    category: definition.category,
-    triage: definition.defaultTriage,
-    file: file,
-    message: message
-  )
-
 proc scanDuplicateLockfiles(result: var seq[Issue]; files: openArray[string]) =
   var fileSet = initTable[string, bool]()
   for file in files:
@@ -83,9 +72,8 @@ proc scanDuplicateLockfiles(result: var seq[Issue]; files: openArray[string]) =
         found.add(lockfile)
 
     if found.len > 1:
-      result.add(warning(
+      result.add(newRuleIssue(
         "duplicate-lockfiles",
-        "package-drift",
         file,
         "Multiple package manager lockfiles found in the same package root."
       ))
@@ -105,9 +93,8 @@ proc scanDockerignoreMissing(result: var seq[Issue]; files: openArray[string]) =
 
     let expected = joinRepoPath(file.parentDir(), ".dockerignore")
     if not fileSet.hasKey(expected):
-      result.add(warning(
+      result.add(newRuleIssue(
         "dockerignore-missing",
-        "docker-drift",
         file,
         "Dockerfile has no same-directory .dockerignore."
       ))
@@ -121,11 +108,33 @@ proc isGeneratedFile(file: string): bool =
 proc scanGeneratedFiles(result: var seq[Issue]; files: openArray[string]) =
   for file in files:
     if file.isGeneratedFile():
-      result.add(warning(
+      result.add(newRuleIssue(
         "generated-files",
-        "repo-hygiene",
         file,
         "Generated output is tracked in the repository."
+      ))
+
+proc isTrackedEnvFile(file: string): bool =
+  let name = file.normalizeRepoPath().splitFile.name &
+      file.normalizeRepoPath().splitFile.ext
+  if name != ".env" and not name.startsWith(".env."):
+    return false
+  for safeSuffix in [".example", ".sample", ".template", ".defaults",
+      ".dist", ".enc", ".encrypted"]:
+    if name.endsWith(safeSuffix):
+      return false
+  true
+
+proc scanTrackedEnvFiles(result: var seq[Issue]; files: openArray[string];
+    runtimeConfig: RuntimeConfig) =
+  for file in files:
+    let name = file.normalizeRepoPath().splitFile.name &
+        file.normalizeRepoPath().splitFile.ext
+    if file.isTrackedEnvFile() and name notin runtimeConfig.envExampleFiles:
+      result.add(newRuleIssue(
+        "tracked-env-file",
+        file,
+        "Environment file is tracked and may expose credentials."
       ))
 
 proc scanRepoHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Issue] =
@@ -133,4 +142,5 @@ proc scanRepoHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Issu
   result.scanDuplicateLockfiles(files)
   result.scanDockerignoreMissing(files)
   result.scanGeneratedFiles(files)
+  result.scanTrackedEnvFiles(files, runtimeConfig)
   result = result.applyRuleOverrides(runtimeConfig)

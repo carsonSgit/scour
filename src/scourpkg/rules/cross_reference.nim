@@ -1,6 +1,6 @@
 import algorithm, json, os, osproc, sequtils, strutils, tables
 
-import ../config, ../issues, ../rule_catalog, ../scan_plan
+import ../config, ../issues, ../rule_issue, ../scan_plan, ../source_text
 
 const
   NodeLockfiles = [
@@ -70,74 +70,47 @@ proc lineColumn(text: string; index: int): tuple[line: int; column: int] =
     else:
       inc result.column
 
-proc issue(
-    ruleId, category: string;
-    severity: Severity;
-    triage: TriageLevel;
-    file: string;
-    line, column: int;
-    message: string
-): Issue =
-  let definition = findRule(ruleId)
-  Issue(
-    ruleId: ruleId,
-    severity: definition.defaultSeverity.toSeverity(),
-    category: definition.category,
-    triage: definition.defaultTriage,
-    file: file,
-    line: line,
-    column: column,
-    message: message
-  )
-
 proc envError(file: string; line, column: int; name: string): Issue =
-  issue(
+  newRuleIssue(
     "env-drift",
-    "env-drift",
-    severityError,
-    triageBlocker,
     file,
+    "Environment variable " & name & " is used but absent from env example files.",
     line,
-    column,
-    "Environment variable " & name & " is used but absent from env example files."
+    column
   )
 
-proc commandWarning(ruleId, category, file: string; line, column: int;
+proc commandWarning(ruleId, file: string; line, column: int;
     command: string): Issue =
-  issue(
+  newRuleIssue(
     ruleId,
-    category,
-    severityWarning,
-    triageFixNow,
     file,
+    "Command `" & command & "` references a missing script or task target.",
     line,
-    column,
-    "Command `" & command & "` references a missing script or task target."
+    column
   )
 
-proc commandError(ruleId, category, file: string; line, column: int;
+proc commandError(ruleId, file: string; line, column: int;
     command: string): Issue =
-  issue(
+  newRuleIssue(
     ruleId,
-    category,
-    severityError,
-    triageBlocker,
     file,
+    "Command `" & command & "` references a missing script or task target.",
     line,
-    column,
-    "Command `" & command & "` references a missing script or task target."
+    column
   )
 
 proc packageWarning(file: string): Issue =
-  issue(
+  newRuleIssue(
     "package-lock-drift",
-    "package-drift",
-    severityWarning,
-    triageFixNow,
     file,
-    0,
-    0,
     "package.json changed without its existing Node lockfile."
+  )
+
+proc dependencyWarning(file, lockfile: string): Issue =
+  newRuleIssue(
+    "dependency-lock-drift",
+    file,
+    file.fileName() & " changed without its existing " & lockfile.fileName() & "."
   )
 
 proc loadEnvNames(root: string; files: openArray[string];
@@ -173,27 +146,27 @@ proc addEnvIssue(
 
 proc scanPropertyEnv(
     result: var seq[Issue];
-    file, text, prefix: string;
+    file, text, code, prefix: string;
     documented: Table[string, bool];
     ignoredNames: openArray[string]
 ) =
   var searchFrom = 0
   while true:
-    let index = text.find(prefix, searchFrom)
+    let index = code.find(prefix, searchFrom)
     if index < 0:
       break
     let nameStart = index + prefix.len
     var nameEnd = nameStart
-    if nameStart < text.len and text[nameStart].isEnvStart():
-      while nameEnd < text.len and text[nameEnd].isEnvPart():
+    if nameStart < code.len and code[nameStart].isEnvStart():
+      while nameEnd < code.len and code[nameEnd].isEnvPart():
         inc nameEnd
-      result.addEnvIssue(file, text, text[nameStart ..< nameEnd], index,
+      result.addEnvIssue(file, text, code[nameStart ..< nameEnd], index,
           documented, ignoredNames)
     searchFrom = max(index + 1, nameEnd)
 
 proc scanQuotedEnv(
     result: var seq[Issue];
-    file, text, prefix: string;
+    file, text, code, prefix: string;
     documented: Table[string, bool];
     ignoredNames: openArray[string]
 ) =
@@ -203,7 +176,9 @@ proc scanQuotedEnv(
     if index < 0:
       break
     let quoteIndex = index + prefix.len
-    if quoteIndex >= text.len or text[quoteIndex] notin ['"', '\'']:
+    let prefixIsCode = index + prefix.len <= code.len and
+        code[index ..< index + prefix.len] == prefix
+    if not prefixIsCode or quoteIndex >= text.len or text[quoteIndex] notin ['"', '\'']:
       searchFrom = index + 1
       continue
     let quote = text[quoteIndex]
@@ -225,22 +200,48 @@ proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[
     let text = safeRead(plan.repo.root, candidate)
     if text.len == 0:
       continue
-    result.scanPropertyEnv(candidate, text, "process.env.", documented,
-        runtimeConfig.ignoredEnvVars)
-    result.scanPropertyEnv(candidate, text, "import.meta.env.", documented,
-        runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "Deno.env.get(", documented,
-        runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "os.Getenv(", documented,
-        runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "std::env::var(", documented,
-        runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "System.getenv(", documented,
-        runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "ENV[", documented,
-        runtimeConfig.ignoredEnvVars)
-    result.scanQuotedEnv(candidate, text, "getenv(", documented,
-        runtimeConfig.ignoredEnvVars)
+    let code = text.maskedSourceText(candidate)
+    case candidate.extension()
+    of ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts":
+      result.scanPropertyEnv(candidate, text, code, "process.env.", documented,
+          runtimeConfig.ignoredEnvVars)
+      result.scanPropertyEnv(candidate, text, code, "import.meta.env.", documented,
+          runtimeConfig.ignoredEnvVars)
+      result.scanQuotedEnv(candidate, text, code, "process.env[", documented,
+          runtimeConfig.ignoredEnvVars)
+      result.scanQuotedEnv(candidate, text, code, "import.meta.env[", documented,
+          runtimeConfig.ignoredEnvVars)
+      result.scanQuotedEnv(candidate, text, code, "Deno.env.get(", documented,
+          runtimeConfig.ignoredEnvVars)
+    of ".py":
+      result.scanQuotedEnv(candidate, text, code, "os.getenv(", documented,
+          runtimeConfig.ignoredEnvVars)
+      result.scanQuotedEnv(candidate, text, code, "os.environ.get(", documented,
+          runtimeConfig.ignoredEnvVars)
+      result.scanQuotedEnv(candidate, text, code, "os.environ[", documented,
+          runtimeConfig.ignoredEnvVars)
+    of ".go":
+      result.scanQuotedEnv(candidate, text, code, "os.Getenv(", documented,
+          runtimeConfig.ignoredEnvVars)
+      result.scanQuotedEnv(candidate, text, code, "os.LookupEnv(", documented,
+          runtimeConfig.ignoredEnvVars)
+    of ".rs":
+      result.scanQuotedEnv(candidate, text, code, "std::env::var(", documented,
+          runtimeConfig.ignoredEnvVars)
+    of ".java", ".kt", ".kts":
+      result.scanQuotedEnv(candidate, text, code, "System.getenv(", documented,
+          runtimeConfig.ignoredEnvVars)
+    of ".cs":
+      result.scanQuotedEnv(candidate, text, code, "Environment.GetEnvironmentVariable(",
+          documented, runtimeConfig.ignoredEnvVars)
+    of ".rb":
+      result.scanQuotedEnv(candidate, text, code, "ENV[", documented,
+          runtimeConfig.ignoredEnvVars)
+    of ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".php":
+      result.scanQuotedEnv(candidate, text, code, "getenv(", documented,
+          runtimeConfig.ignoredEnvVars)
+    else:
+      discard
 
 proc addPackageScripts(inventory: var CommandInventory; root, file: string) =
   try:
@@ -310,7 +311,10 @@ proc commandTarget(command: string): tuple[kind: string; target: string] =
   of "pnpm":
     if parts.len >= 3 and parts[1] == "run":
       return ("package", parts[2])
-    if parts.len >= 2:
+    if parts.len >= 2 and parts[1] notin ["add", "audit", "ci", "create",
+        "dlx", "exec", "fetch", "import", "init", "install", "i", "link",
+        "list", "outdated", "pack", "patch", "prune", "publish", "rebuild",
+        "remove", "setup", "store", "update", "why"]:
       return ("package", parts[1])
   of "bun":
     if parts.len >= 3 and parts[1] == "run":
@@ -319,7 +323,10 @@ proc commandTarget(command: string): tuple[kind: string; target: string] =
     if parts.len >= 2:
       if parts[1] == "run" and parts.len >= 3:
         return ("package", parts[2])
-      return ("package", parts[1])
+      if parts[1] notin ["add", "audit", "cache", "config", "create", "dlx",
+          "exec", "import", "info", "init", "install", "link", "list", "pack",
+          "publish", "remove", "set", "unplug", "upgrade", "version", "why"]:
+        return ("package", parts[1])
   of "make":
     if parts.len >= 2:
       return ("make", parts[1])
@@ -356,12 +363,8 @@ proc commandPrefix(line: string): string =
   text
 
 proc isCommandCandidate(line: string): bool =
-  let text = line.commandPrefix()
-  for prefix in ["npm run ", "pnpm run ", "pnpm ", "yarn ", "bun run ", "make ",
-      "just ", "task "]:
-    if text.startsWith(prefix):
-      return true
-  false
+  let target = line.commandPrefix().commandTarget()
+  target.kind.len > 0
 
 proc scanReadmeCommandDrift(result: var seq[Issue]; plan: ScanPlan;
     inventory: CommandInventory) =
@@ -383,7 +386,7 @@ proc scanReadmeCommandDrift(result: var seq[Issue]; plan: ScanPlan;
       if (not inFence or shellFence) and line.isCommandCandidate():
         let command = line.commandPrefix()
         if not command.isValid(inventory):
-          result.add(commandWarning("readme-command-drift", "docs-drift", file,
+          result.add(commandWarning("readme-command-drift", file,
               lineNumber, line.find(command.strip()) + 1, command))
 
 proc workflowRunCommands(text: string): seq[tuple[line: int; column: int;
@@ -419,8 +422,56 @@ proc scanCiCommandDrift(result: var seq[Issue]; plan: ScanPlan;
       continue
     for command in workflowRunCommands(safeRead(plan.repo.root, file)):
       if command.command.isCommandCandidate() and not command.command.isValid(inventory):
-        result.add(commandError("ci-command-drift", "ci-drift", file,
+        result.add(commandError("ci-command-drift", file,
             command.line, command.column, command.command))
+
+proc isCommitSha(value: string): bool =
+  if value.len != 40:
+    return false
+  for ch in value:
+    if not ((ch >= '0' and ch <= '9') or (ch >= 'a' and ch <= 'f') or
+        (ch >= 'A' and ch <= 'F')):
+      return false
+  true
+
+proc scanUnpinnedGithubActions(result: var seq[Issue]; plan: ScanPlan) =
+  for file in repositoryFiles(plan):
+    if not (file.startsWith(".github/workflows/") and
+        (file.endsWith(".yml") or file.endsWith(".yaml"))):
+      continue
+    var lineNumber = 0
+    for line in safeRead(plan.repo.root, file).splitLines():
+      inc lineNumber
+      var text = line.strip()
+      if text.startsWith("- "):
+        text = text[2 .. ^1].strip()
+      if not text.startsWith("uses:"):
+        continue
+      if text.len <= 5:
+        continue
+      var reference = text[5 .. ^1].strip()
+      if reference.len == 0:
+        continue
+      if reference.len >= 2 and reference[0] in {'\'', '"'} and
+          reference[^1] == reference[0]:
+        reference = reference[1 ..< reference.high]
+      else:
+        reference = reference.splitWhitespace()[0]
+        reference = reference.strip(chars = {'\'', '"'})
+      if reference.startsWith("./") or reference.startsWith("docker://"):
+        continue
+      let separator = reference.rfind('@')
+      if separator <= 0 or separator == reference.high:
+        continue
+      let revision = reference[separator + 1 .. ^1]
+      if not revision.isCommitSha():
+        result.add(newRuleIssue(
+          "unpinned-github-action",
+          file,
+          "GitHub Action `" & reference & "` is not pinned to a full commit SHA.",
+          lineNumber,
+          line.find(reference) + 1
+        ))
 
 proc scanPackageLockDrift(result: var seq[Issue]; plan: ScanPlan;
     files: openArray[string]) =
@@ -444,11 +495,46 @@ proc scanPackageLockDrift(result: var seq[Issue]; plan: ScanPlan;
     if found.len == 1 and not candidateSet.hasKey(found[0]):
       result.add(packageWarning(file))
 
+proc dependencyLockfiles(manifest: string): seq[string] =
+  case manifest
+  of "Cargo.toml": @["Cargo.lock"]
+  of "Gemfile": @["Gemfile.lock"]
+  of "composer.json": @["composer.lock"]
+  of "go.mod": @["go.sum"]
+  of "mix.exs": @["mix.lock"]
+  of "pyproject.toml": @["poetry.lock", "uv.lock", "pdm.lock"]
+  else: @[]
+
+proc scanDependencyLockDrift(result: var seq[Issue]; plan: ScanPlan;
+    files: openArray[string]) =
+  var fileSet = initTable[string, bool]()
+  var candidateSet = initTable[string, bool]()
+  for file in files:
+    fileSet[file] = true
+  for candidate in plan.candidates:
+    candidateSet[candidate.normalizeRepoPath()] = true
+
+  for candidate in plan.candidates:
+    let file = candidate.normalizeRepoPath()
+    let lockfiles = file.fileName().dependencyLockfiles()
+    if lockfiles.len == 0:
+      continue
+    let dir = file.parentDir()
+    var existing: seq[string]
+    for lockfile in lockfiles:
+      let lockPath = joinRepoPath(dir, lockfile)
+      if fileSet.hasKey(lockPath):
+        existing.add(lockPath)
+    if existing.len == 1 and not candidateSet.hasKey(existing[0]):
+      result.add(dependencyWarning(file, existing[0]))
+
 proc scanCrossReference*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Issue] =
   let files = repositoryFiles(plan)
   let inventory = commandInventory(plan.repo.root, files)
   result.scanEnvDrift(plan, files, runtimeConfig)
   result.scanReadmeCommandDrift(plan, inventory)
   result.scanCiCommandDrift(plan, inventory)
+  result.scanUnpinnedGithubActions(plan)
   result.scanPackageLockDrift(plan, files)
+  result.scanDependencyLockDrift(plan, files)
   result = result.applyRuleOverrides(runtimeConfig)

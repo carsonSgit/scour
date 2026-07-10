@@ -67,7 +67,7 @@ export function Hero() {
 
         <p className="mt-4 max-w-[380px]">
           Scour catches leftover debug code, config drift, and lockfile problems in
-          seconds — 13 rules, zero config required.
+          seconds — 17 rules, zero config required.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-3.5">

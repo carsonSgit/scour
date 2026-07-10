@@ -3,6 +3,7 @@ import cli, config, errors, files, help, issues, output, repo, rule_catalog,
 import rules/branch_hygiene
 import rules/cross_reference
 import rules/repo_hygiene
+import rules/security
 
 proc runScour*(): int =
   try:
@@ -48,7 +49,8 @@ proc runScour*(): int =
     )
 
     let foundIssues = scanBranchHygiene(plan, runtimeConfig) & scanRepoHygiene(
-        plan, runtimeConfig) & scanCrossReference(plan, runtimeConfig)
+        plan, runtimeConfig) & scanCrossReference(plan, runtimeConfig) &
+        scanSecurity(plan, runtimeConfig)
     if options.command == commandTriage:
       stdout.write(renderTriage(foundIssues))
     else:

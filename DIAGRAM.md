@@ -61,6 +61,8 @@ CLI args
        focused-test
        skipped-test
        ts-ignore
+       source-aware masking excludes strings and comments before matching
+       debugger and test-state conventions span JS/TS, Python, Ruby, PHP, Go, Rust, JVM, and .NET
        applies rule severity/off and triage overrides
   -> run repository hygiene rules on repository metadata
        inside Git: git ls-files tracked-file inventory
@@ -68,6 +70,7 @@ CLI args
        duplicate-lockfiles
        dockerignore-missing
        generated-files
+       tracked-env-file
        applies rule severity/off and triage overrides
   -> run cross-reference rules
        candidate files for changed source and package manifests
@@ -77,17 +80,24 @@ CLI args
        readme-command-drift validates README.md and docs/**/*.md commands against known scripts and targets
        ci-command-drift validates workflow run commands against known scripts and targets
        package-lock-drift checks changed Node package.json files against existing same-directory lockfiles
+       dependency-lock-drift checks existing Cargo, Ruby, Composer, Go, Elixir, Poetry, uv, and PDM locks
+       unpinned-github-action requires third-party actions to use full commit SHAs
        applies rule severity/off and triage overrides
+  -> run security rules on candidate files
+       hardcoded-secret matches high-confidence provider tokens and private-key headers
+       findings identify credential kind and location without echoing the value
   -> combine issues
        branch hygiene issues
        repository hygiene issues
        cross-reference issues
+       security issues
   -> resolve output and failure settings
        output.color config default applies unless --color was passed
        output.format config default applies unless --format was passed
        top-level fail_on config default applies unless --fail-on was passed
   -> render selected output
        --score: print only the numeric 0-100 health score (scan commands only)
+       repeated findings from one rule receive diminishing, capped deductions
        text: pass message, issue rows, suggestions, and summary
        json: stable summary, triage counts, weighted score, and issue fields
        github: workflow annotations, no output for a clean scan
