@@ -12,7 +12,7 @@ export function RulesGrid() {
     <section className="px-5 py-16 sm:px-7">
       <div className="mx-auto w-full max-w-[600px]">
         <GlitchHeading as="h2" className="text-lg font-semibold tracking-[-0.02em] text-primary">
-          13 rules, out of the box.
+          17 rules, out of the box.
         </GlitchHeading>
         <p className="mt-2">
           No config required. Override anything in{' '}

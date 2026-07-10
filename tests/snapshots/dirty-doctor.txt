@@ -10,14 +10,19 @@
 Top issues
   ✖ ci-command-drift  ·  blocker  ·  .github/workflows/ci.yml:4:14
     Command `npm run missing` references a missing script or task target.
+    Fix: Restore the referenced target or update the CI command.
   ✖ env-drift  ·  blocker  ·  app.ts:7:15
     Environment variable MISSING_TOKEN is used but absent from env example files.
+    Fix: Document the variable in an env example file or remove the use.
   ✖ merge-conflict  ·  fix now  ·  app.ts:1:1
     Merge conflict marker found.
+    Fix: Resolve the conflict and remove the markers.
   ✖ debugger  ·  fix now  ·  app.ts:2:1
     Debugger statement found.
+    Fix: Remove the debugger statement.
   ✖ focused-test  ·  fix now  ·  app.ts:3:1
     Focused test left in source.
+    Fix: Remove the focus marker.
   … and 7 more. Run `scour --all --format json` for the full list.
 
 Paste this report to your agent or fix the issues yourself, then re-run `scour --format doctor`.
