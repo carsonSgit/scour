@@ -2,6 +2,16 @@ import algorithm, os, osproc, sequtils, strutils
 
 import config, errors, scan_plan
 
+const DefaultIgnoredDirectories = [
+  ".git",
+  "node_modules",
+  "vendor",
+  ".venv",
+  "venv",
+  ".tox",
+  "__pycache__"
+]
+
 proc runGit(root: string; args: string): tuple[output: string, exitCode: int] =
   execCmdEx("git -C " & quoteShell(root) & " " & args)
 
@@ -16,9 +26,9 @@ proc normalizeCandidate(root: string; path: string): string =
   except ValueError:
     absolute
 
-proc isInsideGitDir(path: string): bool =
+proc isInsideIgnoredDir(path: string): bool =
   for part in path.split({DirSep, AltSep}):
-    if part == ".git":
+    if part in DefaultIgnoredDirectories:
       return true
   false
 
@@ -35,7 +45,7 @@ proc isBinaryFile(path: string): bool =
 
 proc addCandidate(result: var seq[string]; root: string; path: string) =
   let relative = normalizeCandidate(root, path)
-  if relative.len == 0 or isInsideGitDir(relative):
+  if relative.len == 0 or isInsideIgnoredDir(relative):
     return
   let absolute = root / relative
   if isBinaryFile(absolute):
@@ -81,12 +91,20 @@ proc tryFilesFromGitDiff(root: string; args: string): tuple[ok: bool, files: seq
   result.ok = true
   result.files = uniqueSorted(result.files)
 
-proc allFiles(root: string): seq[string] =
-  for path in walkDirRec(root, relative = false):
-    if isInsideGitDir(path):
-      continue
-    if fileExists(path):
+proc collectFilesRec(result: var seq[string]; root, directory: string) =
+  if isInsideIgnoredDir(directory):
+    return
+  for kind, path in walkDir(directory):
+    case kind
+    of pcDir:
+      result.collectFilesRec(root, path)
+    of pcFile, pcLinkToFile:
       result.addCandidate(root, path)
+    else:
+      discard
+
+proc allFiles(root: string): seq[string] =
+  result.collectFilesRec(root, root)
   result = uniqueSorted(result)
 
 proc explicitFiles(root: string; paths: seq[string]): seq[string] =
@@ -97,8 +115,7 @@ proc explicitFiles(root: string; paths: seq[string]): seq[string] =
     if fileExists(absolute):
       result.addCandidate(root, absolute)
     elif dirExists(absolute):
-      for child in walkDirRec(absolute, relative = false):
-        result.addCandidate(root, child)
+      result.collectFilesRec(root, absolute)
   result = uniqueSorted(result)
 
 proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; runtimeConfig = defaultConfig()): tuple[baseRef: string, files: seq[string]] =

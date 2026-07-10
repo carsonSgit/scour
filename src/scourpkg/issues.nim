@@ -1,3 +1,5 @@
+import strutils, tables
+
 type
   Severity* = enum
     severityError = "error",
@@ -71,7 +73,7 @@ const DefaultScoreWeights* = ScoreWeights(
   blockerPenalty: 3
 )
 
-const DefaultScoreModel* = "weighted-v1"
+const DefaultScoreModel* = "weighted-v2-frequency-capped"
 
 proc countBySeverity*(issues: openArray[Issue]): SeverityCounts =
   for issue in issues:
@@ -122,13 +124,35 @@ proc summarizeIssues*(issues: openArray[Issue]): IssueSummary =
 
 proc scoreIssues*(issues: openArray[Issue];
     weights = DefaultScoreWeights): IssueScore =
-  let summary = summarizeIssues(issues)
-  let breakdown = ScoreBreakdown(
-    errors: summary.bySeverity.errors * weights.errorPenalty,
-    warnings: summary.bySeverity.warnings * weights.warningPenalty,
-    infos: summary.bySeverity.infos * weights.infoPenalty,
-    blockers: summary.byTriage.blockers * weights.blockerPenalty
-  )
+  var severityCounts = initCountTable[string]()
+  var blockerCounts = initCountTable[string]()
+  for issue in issues:
+    severityCounts.inc(issue.ruleId & "\x1f" & $issue.severity)
+    if issue.triage == triageBlocker:
+      blockerCounts.inc(issue.ruleId)
+
+  proc cappedPenalty(count, penalty: int): int =
+    # Repeated instances still matter, but a single prolific rule cannot erase
+    # the score. Quarter units yield multipliers of 1, 1, .75, .5, and .25.
+    let units =
+      if count <= 0: 0
+      elif count == 1: 4
+      elif count == 2: 8
+      elif count == 3: 11
+      elif count == 4: 13
+      else: 14
+    (units * penalty + 3) div 4
+
+  var breakdown: ScoreBreakdown
+  for key, count in severityCounts.pairs:
+    if key.endsWith($severityError):
+      breakdown.errors += cappedPenalty(count, weights.errorPenalty)
+    elif key.endsWith($severityWarning):
+      breakdown.warnings += cappedPenalty(count, weights.warningPenalty)
+    else:
+      breakdown.infos += cappedPenalty(count, weights.infoPenalty)
+  for _, count in blockerCounts.pairs:
+    breakdown.blockers += cappedPenalty(count, weights.blockerPenalty)
   let deductions = breakdown.errors + breakdown.warnings + breakdown.infos +
       breakdown.blockers
   IssueScore(

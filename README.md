@@ -85,6 +85,9 @@ scour --format doctor --all
 
 This report uses Scour's own issue and score data to render a gauge, an
 emoticon-style indicator, a concise issue list, and prioritized next steps.
+The `weighted-v2-frequency-capped` score counts every rule but applies
+diminishing penalties after repeated findings from the same rule, so a large
+generated directory cannot hide the breadth of other repository problems.
 
 The same defaults can be stored in `scour.toml`:
 
@@ -119,8 +122,8 @@ config overrides, thresholds, and exit-zero behavior.
 
 ## Interactive Demo
 
-Create a disposable nested repository that demonstrates all 13 implemented
-rules:
+Create a disposable nested repository that demonstrates the original 13-rule
+scan set:
 
 ```sh
 bash demo/install.sh
@@ -154,3 +157,14 @@ scour --config path/to/scour.toml rules
 
 Discovery output includes effective severity and triage values after config
 overrides.
+
+## Rule Coverage
+
+Scour ships 17 configurable rules. Source hygiene covers JavaScript,
+TypeScript, Python, Ruby, PHP, Go, Rust, JVM, and .NET test conventions.
+Repository checks cover tracked env files, generated output, Docker context,
+and duplicate package-manager state. Cross-reference checks validate env
+contracts, documented and CI commands, GitHub Action pinning, Node locks, and
+existing Cargo, Ruby, Composer, Go, Elixir, Poetry, uv, and PDM lockfiles.
+High-confidence provider-token and private-key signatures are checked without
+printing credential values in findings.
