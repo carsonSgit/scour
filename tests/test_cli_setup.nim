@@ -1,4 +1,4 @@
-import json, os, osproc, strutils, unittest
+import json, os, osproc, sequtils, strutils, unittest
 
 import ../src/scourpkg/cli
 import ../src/scourpkg/config
@@ -14,6 +14,7 @@ import ../src/scourpkg/rule_output
 import ../src/scourpkg/rules/branch_hygiene
 import ../src/scourpkg/rules/cross_reference
 import ../src/scourpkg/rules/repo_hygiene
+import ../src/scourpkg/rules/security
 import ../src/scourpkg/scan_plan
 import ../src/scourpkg/text_output
 import ../src/scourpkg/triage_output
@@ -179,7 +180,7 @@ suite "CLI parser":
 suite "rule catalog":
   test "contains canonical rules in stable alphabetical order":
     let rules = sortedRules()
-    check rules.len == 13
+    check rules.len == 17
     for index in 1 ..< rules.len:
       check rules[index - 1].id < rules[index].id
     check validRuleId("console-log")
@@ -245,12 +246,28 @@ suite "issue summaries":
     ])
     check score.current == 82
     check score.max == 100
-    check score.model == "weighted-v1"
+    check score.model == "weighted-v2-frequency-capped"
     check score.deductions.errors == 10
     check score.deductions.warnings == 4
     check score.deductions.infos == 1
     check score.deductions.blockers == 3
     check score.deductions.total == 18
+    let repeatedRuleScore = scoreIssues(@[
+      Issue(ruleId: "same-rule", severity: severityWarning),
+      Issue(ruleId: "same-rule", severity: severityWarning),
+      Issue(ruleId: "same-rule", severity: severityWarning),
+      Issue(ruleId: "same-rule", severity: severityWarning),
+      Issue(ruleId: "same-rule", severity: severityWarning)
+    ])
+    let distinctRuleScore = scoreIssues(@[
+      Issue(ruleId: "rule-1", severity: severityWarning),
+      Issue(ruleId: "rule-2", severity: severityWarning),
+      Issue(ruleId: "rule-3", severity: severityWarning),
+      Issue(ruleId: "rule-4", severity: severityWarning),
+      Issue(ruleId: "rule-5", severity: severityWarning)
+    ])
+    check repeatedRuleScore.deductions.warnings == 14
+    check distinctRuleScore.deductions.warnings == 20
     check scoreIssues(@[
       Issue(severity: severityError, triage: triageBlocker),
       Issue(severity: severityError, triage: triageBlocker),
@@ -262,7 +279,7 @@ suite "issue summaries":
       Issue(severity: severityError, triage: triageBlocker),
       Issue(severity: severityError, triage: triageBlocker),
       Issue(severity: severityError, triage: triageBlocker)
-    ]).current == 0
+    ]).current == 54
 
 suite "structured output":
   test "renders stable JSON for clean scans and full issues":
@@ -559,6 +576,9 @@ suite "branch hygiene rules":
     writeFile(root / "app.ts", [
       "// debugger;",
       "// console.log('commented');",
+      "const message = \"console.log('string') debugger; test.only\";",
+      "const ok = 1; // debugger; console.log('inline comment');",
+      "const directive = '@ts-ignore';",
       "console.error('real but allowed');",
       "const profit = 1;",
       "// @ts-expect-error",
@@ -566,6 +586,26 @@ suite "branch hygiene rules":
     ].join("\n"))
     let issues = scanBranchHygiene(testPlan(root, @["app.ts"]))
     check issues.len == 0
+
+  test "matches debugger and skipped-test conventions across languages":
+    let root = getTempDir() / "scour-multilanguage-rules"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "debug.py", "breakpoint()\n")
+    writeFile(root / "sample_spec.rb", "fdescribe 'sample' do\n  xit 'later' do\n  end\nend\n")
+    writeFile(root / "api_test.py", "@pytest.mark.skip(reason='later')\ndef test_api(): pass\n")
+    writeFile(root / "thing_test.go", "func TestThing(t *testing.T) { t.Skip(\"later\") }\n")
+    writeFile(root / "service_test.rs", "#[test]\n#[ignore]\nfn service() {}\n")
+    writeFile(root / "WidgetTest.java", "@Disabled\nclass WidgetTest {}\n")
+
+    let issues = scanBranchHygiene(testPlan(root, @[
+      "debug.py", "sample_spec.rb", "api_test.py", "thing_test.go",
+      "service_test.rs", "WidgetTest.java"
+    ]))
+    check issues.hasIssue("debugger")
+    check issues.hasIssue("focused-test")
+    check issues.hasIssue("skipped-test")
+    check issues.firstIssue("debugger").suggestion.len > 0
 
   test "disables console-log through runtime config":
     let root = getTempDir() / "scour-console-disabled"
@@ -700,6 +740,24 @@ suite "repository hygiene rules":
     let issues = scanRepoHygiene(plan)
     check issues.hasIssue("generated-files") == false
 
+  test "reports tracked env files but allows redacted and encrypted forms":
+    let root = getTempDir() / "scour-tracked-env"
+    cleanDir(root)
+    createDir(root)
+    for file in [".env", ".env.production", ".env.example",
+        ".env.local.sample", ".env.encrypted"]:
+      writeFile(root / file, "TOKEN=value\n")
+    let issues = scanRepoHygiene(testPlan(root, @[
+      ".env", ".env.production", ".env.example", ".env.local.sample",
+      ".env.encrypted"
+    ]))
+    check issues.len == 2
+    check issues.hasIssue("tracked-env-file")
+    check issues.firstIssue("tracked-env-file").suggestion.len > 0
+
+    let cfg = RuntimeConfig(envExampleFiles: @[".env.production"])
+    check scanRepoHygiene(testPlan(root, @[".env.production"]), cfg).len == 0
+
 suite "cross-reference rules":
   test "reports env usage missing from env examples":
     let root = getTempDir() / "scour-env-drift"
@@ -726,6 +784,39 @@ suite "cross-reference rules":
 
     let issues = scanCrossReference(testPlan(root, @["app.ts", ".env.example"]))
     check issues.hasIssue("env-drift") == false
+
+  test "ignores environment syntax inside source strings and comments":
+    let root = getTempDir() / "scour-env-source-masking"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", [
+      "const example = 'process.env.NOT_A_REAL_VAR';",
+      "// process.env.NOT_A_REAL_VAR",
+      "const token = process.env.REAL_TOKEN;",
+      "const config = process.env['CONFIG_TOKEN'];"
+    ].join("\n"))
+    let issues = scanCrossReference(testPlan(root, @["app.ts"]))
+    check issues.len == 2
+    check "REAL_TOKEN" in issues[0].message or "REAL_TOKEN" in issues[1].message
+    check "CONFIG_TOKEN" in issues[0].message or "CONFIG_TOKEN" in issues[1].message
+
+  test "finds quoted environment access across supported languages":
+    let root = getTempDir() / "scour-env-language-coverage"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.py", "token = os.getenv('PY_TOKEN')\n")
+    writeFile(root / "app.go", "token := os.LookupEnv(\"GO_TOKEN\")\n")
+    writeFile(root / "app.rs", "let token = std::env::var(\"RUST_TOKEN\");\n")
+    writeFile(root / "App.java", "var token = System.getenv(\"JAVA_TOKEN\");\n")
+    writeFile(root / "app.cs", "var token = Environment.GetEnvironmentVariable(\"CS_TOKEN\");\n")
+    writeFile(root / "app.rb", "token = ENV['RUBY_TOKEN']\n")
+    let issues = scanCrossReference(testPlan(root, @[
+      "app.py", "app.go", "app.rs", "App.java", "app.cs", "app.rb"
+    ]))
+    check issues.len == 6
+    for name in ["PY_TOKEN", "GO_TOKEN", "RUST_TOKEN", "JAVA_TOKEN",
+        "CS_TOKEN", "RUBY_TOKEN"]:
+      check issues.anyIt(name in it.message)
 
   test "uses configured env example files and ignored env vars":
     let root = getTempDir() / "scour-env-config"
@@ -777,6 +868,13 @@ suite "cross-reference rules":
       "Taskfile.yml"
     ]))
     check issues.hasIssue("readme-command-drift") == false
+
+  test "does not treat package-manager subcommands as missing scripts":
+    let root = getTempDir() / "scour-package-manager-subcommands"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "README.md", "```sh\npnpm install --frozen-lockfile\nyarn install\n```\n")
+    check scanCrossReference(testPlan(root, @["README.md"])).len == 0
 
   test "reports CI run command with missing script target":
     let root = getTempDir() / "scour-ci-command-drift"
@@ -862,6 +960,66 @@ suite "cross-reference rules":
     ))
     check noLockIssues.hasIssue("package-lock-drift") == false
 
+  test "reports lock drift for non-Node dependency ecosystems":
+    let root = getTempDir() / "scour-dependency-lock-drift"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "rust")
+    createDir(root / "python")
+    writeFile(root / "rust" / "Cargo.toml", "[package]\nname = \"app\"\n")
+    writeFile(root / "rust" / "Cargo.lock", "# lock\n")
+    writeFile(root / "python" / "pyproject.toml", "[project]\nname = \"app\"\n")
+    writeFile(root / "python" / "uv.lock", "version = 1\n")
+    check run("git add rust python", root).exitCode == 0
+    check run("git commit -m dependencies", root).exitCode == 0
+    let issues = scanCrossReference(ScanPlan(
+      mode: scanChanged,
+      repo: RepoContext(root: root, isGit: true),
+      candidates: @["rust/Cargo.toml", "python/pyproject.toml"]
+    ))
+    check issues.len == 2
+    check issues.hasIssue("dependency-lock-drift")
+    check issues.firstIssue("dependency-lock-drift").suggestion.len > 0
+
+  test "reports unpinned third-party actions and allows SHA and local actions":
+    let root = getTempDir() / "scour-action-pinning"
+    cleanDir(root)
+    createDir(root / ".github" / "workflows")
+    let workflow = ".github/workflows/ci.yml"
+    writeFile(root / workflow, [
+      "steps:",
+      "  - uses: actions/checkout@v4",
+      "  - uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567",
+      "  - uses: ./local-action"
+    ].join("\n"))
+    let issues = scanCrossReference(testPlan(root, @[workflow]))
+    check issues.len == 1
+    check issues.hasIssue("unpinned-github-action")
+    check issues.firstIssue("unpinned-github-action").line == 2
+
+suite "security rules":
+  test "finds provider credentials and private keys without echoing values":
+    let root = getTempDir() / "scour-hardcoded-secrets"
+    cleanDir(root)
+    createDir(root)
+    let githubToken = "ghp_" & repeat('a', 36)
+    let privateKeyStart = "-----BEGIN "
+    let privateKeyEnd = "PRIVATE KEY-----"
+    let privateKey = privateKeyStart & privateKeyEnd
+    writeFile(root / "secrets.txt", githubToken & "\n" & privateKey & "\n")
+    let issues = scanSecurity(testPlan(root, @["secrets.txt"]))
+    check issues.len == 2
+    check issues.hasIssue("hardcoded-secret")
+    check githubToken notin issues[0].message
+    check issues[0].suggestion.len > 0
+
+  test "ignores placeholders and short token-like strings":
+    let root = getTempDir() / "scour-secret-placeholders"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "docs.md", "ghp_<credential>\nAKIAEXAMPLE\nsk_live_test\n")
+    check scanSecurity(testPlan(root, @["docs.md"])).len == 0
+
 suite "scan planning and files":
   test "selects default modes":
     check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true)) == scanChanged
@@ -916,6 +1074,24 @@ suite "scan planning and files":
     let collected = collectCandidates(context, scanStaged, CliOptions(
         staged: true), cfg)
     check collected.files == @["kept.ts"]
+
+  test "skips installed dependency and cache directories by default":
+    let root = getTempDir() / "scour-default-ignored-dirs"
+    cleanDir(root)
+    createDir(root / "src")
+    createDir(root / "node_modules" / "package")
+    createDir(root / ".venv" / "lib")
+    createDir(root / "vendor" / "library")
+    writeFile(root / "src" / "app.ts", "console.log('scan me');\n")
+    writeFile(root / "node_modules" / "package" / "index.ts", "debugger;\n")
+    writeFile(root / ".venv" / "lib" / "app.py", "breakpoint()\n")
+    writeFile(root / "vendor" / "library" / "app.go", "panic(\"ignore\")\n")
+    let collected = collectCandidates(
+      RepoContext(root: root, isGit: false),
+      scanAll,
+      CliOptions()
+    )
+    check collected.files == @["src/app.ts"]
 
   test "collects files since a real Git ref":
     let root = getTempDir() / "scour-since"
