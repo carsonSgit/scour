@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.4.5] - 2026-10-07
+
+### Other
+- Let review sessions rerun tests under workspace-write with redirected caches
+
 ## [0.4.4] - 2026-10-07
 
 ### Other
