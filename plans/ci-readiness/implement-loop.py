@@ -180,9 +180,19 @@ def session(
     expected = "passed" if review else "complete"
     if report["issue"] != number or report["status"] != expected or report["findings"]:
         raise RuntimeError(f"Session {name} blocked: {report['summary']}")
-    if not report["checks"] or any(c["exit_code"] != 0 for c in report["checks"]):
+    if not report["checks"] or any(
+        c["exit_code"] != 0 for c in last_check_exits(report["checks"])
+    ):
         raise RuntimeError(f"Session {name} has missing or failing checks")
     return report
+
+
+def last_check_exits(checks: list[dict]) -> list[dict]:
+    """Return the final recorded exit for each command; retries supersede."""
+    final: dict[str, dict] = {}
+    for check in checks:
+        final[check["command"]] = check
+    return list(final.values())
 
 
 def acceptance(report: dict, criteria: list[str]) -> None:
