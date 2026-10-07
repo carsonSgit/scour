@@ -3,6 +3,22 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.4.1] - 2026-10-07
+
+### Other
+- Add multi-language rule coverage, secret scanning, and frequency-capped
+
+- Extend debugger/skipped/focused-test and env-var detection to Python,
+  Ruby, PHP, Go, Rust, JVM, and .NET conventions, masking strings and
+  comments so matches only fire on real code
+- Add hardcoded-secret, tracked-env-file, dependency-lock-drift, and
+  unpinned-github-action rules, bringing the catalog to 17 rules
+- Replace the weighted-v1 score model with a frequency-capped model so
+  one noisy rule can no longer erase the score's visibility into other
+  issues
+- Default-ignore node_modules/vendor/.venv/etc. during full scans and
+  update docs, site copy, and snapshots to match
+
 ## [0.4.0] - 2026-06-15
 
 ### Features
