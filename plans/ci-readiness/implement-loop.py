@@ -91,7 +91,7 @@ def clean() -> None:
     unexpected = [
         p
         for p in untracked.split("\0")
-        if p and not p.startswith("plans/ci-readiness/")
+        if p and not p.startswith(("plans/ci-readiness/", ".omo/"))
     ]
     if unexpected:
         raise RuntimeError(
