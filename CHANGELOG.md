@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.4.3] - 2026-10-07
+
+### Other
+- Fix loop session checks to count retried commands by final exit
+
 ## [0.4.2] - 2026-10-07
 
 ### Other
