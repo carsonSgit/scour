@@ -2,6 +2,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -153,7 +154,7 @@ def session(
         "-C",
         str(ROOT),
         "--sandbox",
-        "read-only" if review else "danger-full-access",
+        "workspace-write" if review else "danger-full-access",
         "--json",
         "--color",
         "never",
@@ -163,6 +164,17 @@ def session(
         str(output),
         "-",
     ]
+    env: dict[str, str] | None = None
+    if review:
+        env = dict(os.environ)
+        home = Path(tempfile.mkdtemp(prefix="review-home-", dir=directory))
+        cache = home / ".cache"
+        nimble_home = home / ".nimble"
+        if (Path.home() / ".nimble").exists():
+            shutil.copytree(Path.home() / ".nimble", nimble_home, dirs_exist_ok=True)
+        cache.mkdir()
+        env["XDG_CACHE_HOME"] = str(cache)
+        env["NIMBLE_DIR"] = str(nimble_home)
     print(f"Starting fresh session: {name}; logs: {directory}", flush=True)
     with (directory / f"{name}.jsonl").open("w") as log:
         result = subprocess.run(
@@ -173,6 +185,7 @@ def session(
             stdout=log,
             stderr=subprocess.STDOUT,
             check=False,
+            env=env,
         )
     if result.returncode or not output.exists():
         raise RuntimeError(f"Session {name} failed; inspect {directory}")
@@ -220,7 +233,7 @@ Run Nim typechecking and affected test files regularly. Full suite runs at final
 Check Nim 2.2.10+, Nimble, and prerequisites. Install missing local tools through documented methods. Never claim skipped checks.
 Use uv/ruff/mypy for Python. Apply $code-review against {base}, using this supplied spec; no tracker setup or new ticket is needed.
 Run scope/review gates at {GATES} against {base}. Answer every review-standards.md item with counts. A failed scope budget requires a proposed seam split.
-{"Read-only review: do not edit or commit." if review else "Commit only this issue work to the current branch after verification and review."}
+{"Review: do not edit or commit; your sandbox permits cache/temp writes for rerunning tests, and the controller verifies the tree is untouched afterward." if review else "Commit only this issue work to the current branch after verification and review."}
 Implementation commit subjects start QRTX-00: and reference this GitHub issue number.
 Preserve untracked plans/ci-readiness handoff files; do not stage or modify them.
 No push, MR, issue edit/comment/closure, release, or hosted pipeline is authorized. If required, return blocked with the exact action/approval needed.
