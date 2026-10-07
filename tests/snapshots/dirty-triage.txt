@@ -5,54 +5,66 @@ Blockers (2)
 ERROR env-drift
   app.ts:7:15
   Environment variable MISSING_TOKEN is used but absent from env example files.
+  Suggestion: Document the variable in an env example file or remove the use.
 
 ERROR ci-command-drift
   .github/workflows/ci.yml:4:14
   Command `npm run missing` references a missing script or task target.
+  Suggestion: Restore the referenced target or update the CI command.
 
 Fix Now (8)
 
 ERROR merge-conflict
   app.ts:1:1
   Merge conflict marker found.
+  Suggestion: Resolve the conflict and remove the markers.
 
 ERROR debugger
   app.ts:2:1
   Debugger statement found.
+  Suggestion: Remove the debugger statement.
 
 ERROR focused-test
   app.ts:3:1
   Focused test left in source.
+  Suggestion: Remove the focus marker.
 
 ERROR skipped-test
   app.ts:4:1
   Skipped test left in source.
+  Suggestion: Enable the test or document why it remains skipped.
 
 WARNING duplicate-lockfiles
   package.json
   Multiple package manager lockfiles found in the same package root.
+  Suggestion: Keep the lockfile for the package manager used by the project.
 
 WARNING dockerignore-missing
   Dockerfile
   Dockerfile has no same-directory .dockerignore.
+  Suggestion: Add a .dockerignore beside the Dockerfile.
 
 WARNING generated-files
   dist/generated.js
   Generated output is tracked in the repository.
+  Suggestion: Remove generated output from version control and ignore it.
 
 WARNING readme-command-drift
   README.md:4:1
   Command `npm run missing` references a missing script or task target.
+  Suggestion: Restore the referenced target or update the README command.
 
 Needs Review (2)
 
 WARNING console-log
   app.ts:5:1
   console.log call found.
+  Suggestion: Remove the debug output or use the project's logging facility.
 
 WARNING ts-ignore
   app.ts:6:4
   @ts-ignore suppression found.
+  Suggestion: Fix the type error or replace the suppression with a narrower approach.
 
 Summary
   Blockers: 2

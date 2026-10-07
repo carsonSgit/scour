@@ -243,7 +243,7 @@ package resolution.
   "score": {
     "current": 10,
     "max": 100,
-    "model": "weighted-v1",
+    "model": "weighted-v2-frequency-capped",
     "deductions": {
       "errors": 60,
       "warnings": 24,
@@ -256,7 +256,7 @@ package resolution.
 }
 ```
 
-### Example Config Direction
+### Proposed Future Config Direction
 
 ```toml
 fail_on = "warning"
@@ -265,7 +265,7 @@ fail_on = "warning"
 format = "text"
 
 [doctor.score]
-model = "weighted-v1"
+model = "weighted-v2-frequency-capped"
 error_penalty = 10
 warning_penalty = 4
 info_penalty = 1
