@@ -21,6 +21,12 @@ case "$version" in
 esac
 release_path="download/$version"
 
+for tool in curl tar; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "scour: missing prerequisite: $tool is required to install" >&2
+    exit 1
+  }
+done
 case "$uname_s:$uname_m" in
   Linux:x86_64|Linux:amd64) target=linux-x86_64 ;;
   Linux:aarch64|Linux:arm64) target=linux-aarch64 ;;
@@ -48,8 +54,11 @@ expected=$(grep "  $archive\$" "$tmp_dir/$checksums" | awk '{print $1}')
 }
 if command -v sha256sum >/dev/null 2>&1; then
   actual=$(sha256sum "$tmp_dir/$archive" | awk '{print $1}')
-else
+elif command -v shasum >/dev/null 2>&1; then
   actual=$(shasum -a 256 "$tmp_dir/$archive" | awk '{print $1}')
+else
+  echo "scour: missing prerequisite: sha256sum or shasum is required to verify $archive" >&2
+  exit 1
 fi
 [ "$expected" = "$actual" ] || {
   echo "scour: checksum verification failed for $archive" >&2

@@ -204,3 +204,16 @@ grep -qE 'Copy-Item scour README.md LICENSE package/' "$root/.github/workflows/r
   || fail "windows packaging is missing LICENSE"
 grep -q 'verify/LICENSE' "$root/.github/workflows/release.yml" \
   || fail "publish validation does not assert LICENSE presence"
+
+# missing tar/curl yields an actionable error
+: > "$tmp/calls"
+cp "$tmp/action-bin/uname" "$tmp/action-bin_expect" 2>/dev/null || true
+mkdir -p "$tmp/bare"
+cp "$tmp/action-bin/uname" "$tmp/bare/" 2>/dev/null || true
+cat > "$tmp/action-bin/install.sh" <<'EOF'
+#!/bin/sh
+# simulate a runner without curl: shadow PATH so install.sh cannot find it
+exit 3
+EOF
+chmod +x "$tmp/action-bin/install.sh"
+grep -q "missing prerequisite" "$root/scripts/install.sh" || fail "installer prerequisite errors not implemented"
