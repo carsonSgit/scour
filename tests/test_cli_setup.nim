@@ -293,7 +293,7 @@ suite "structured output":
     let clean = parseJson(renderJsonIssues(@[], testPlan("", @[])))
     check clean["report_version"].getInt() == 1
     check clean["tool"]["name"].getStr() == "scour"
-    check clean["tool"]["version"].getStr() == "0.4.5"
+    check clean["tool"]["version"].getStr() == "0.4.7"
     check clean["summary"]["total"].getInt() == 0
     check clean["summary"]["triage"]["ignored"].getInt() == 0
     check clean["score"]["current"].getInt() == 100
