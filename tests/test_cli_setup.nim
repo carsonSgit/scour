@@ -1477,3 +1477,39 @@ suite "command behavior":
     check "WARNING readme-command-drift\n  README.md:2:1\n  Command `npm run missing` references a missing script or task target." in result.output
     check "ERROR ci-command-drift\n  .github/workflows/ci.yml:4:14\n  Command `npm run missing` references a missing script or task target." in result.output
     check "WARNING package-lock-drift\n  app/package.json\n  package.json changed without its existing Node lockfile." in result.output
+
+  test "git enumeration preserves separated filenames across scan paths":
+    let names =
+      when defined(windows):
+        @["space name.ts", "uni\u{e9}code.ts", "tab\tname.ts"]
+      else:
+        @["space name.ts", "back\\slash.ts", "quote'file.ts", "uni\u{e9}code.ts",
+            "tab\tname.ts", "new\nline.ts"]
+    let root = getTempDir() / "scour-filenames-fixture"
+    cleanDir(root)
+    initGitRepo(root)
+    for name in names:
+      writeFile(root / name, "const value = process.env.RENAMED;\n")
+    check run("git add -A", root).exitCode == 0
+    check run("git commit -m names", root).exitCode == 0
+
+    let context = RepoContext(root: root, isGit: true)
+    let options = CliOptions(sinceRef: "HEAD~1")
+    for mode in [scanChanged, scanAll]:
+      let collected = collectCandidates(context, mode, options)
+      for name in names:
+        check collected.files.count(name) == 1
+
+    for name in names:
+      writeFile(root / name, "const value = process.env.UNDOCUMENTED;\n")
+    check run("git add -A", root).exitCode == 0
+    let staged = collectCandidates(context, scanStaged, options)
+    for name in names:
+      check staged.files.count(name) == 1
+
+    let binary = fixtureBinary()
+    let report = run(binary.quoteShell & " --all --format json", root)
+    check report.exitCode == 1
+    let issues = parseJson(report.output)["issues"]
+    for name in names:
+      check issues.toSeq().countIt(it["file"].getStr() == name) == 1

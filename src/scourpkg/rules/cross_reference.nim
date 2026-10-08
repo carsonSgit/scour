@@ -40,9 +40,9 @@ proc runGit(root: string; args: string): tuple[output: string; exitCode: int] =
 
 proc repositoryFiles(plan: ScanPlan): seq[string] =
   if plan.repo.isGit:
-    let git = runGit(plan.repo.root, "ls-files")
+    let git = runGit(plan.repo.root, "ls-files -z")
     if git.exitCode == 0:
-      for line in git.output.splitLines():
+      for line in git.output.split('\0'):
         if line.len > 0:
           result.add(line.normalizeRepoPath())
       result = result.deduplicate()
