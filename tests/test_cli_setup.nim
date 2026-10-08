@@ -1908,3 +1908,97 @@ suite "command behavior":
         check usage.ruMaxrss < 1_000_000_000
       else:
         check usage.ruMaxrss < 1_000_000
+
+  test "workspaces keep command scripts and env contracts isolated":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-workspaces"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "app")
+    createDir(root / "lib")
+    writeFile(root / "app" / "package.json", "{\"scripts\":{\"apprun\":\"true\"}}\n")
+    writeFile(root / "lib" / "package.json", "{\"scripts\":{\"librun\":\"true\"}}\n")
+    writeFile(root / "README.md", "```sh\nnpm run librun\n```\n")
+    writeFile(root / "app" / ".env.example", "APP_ONLY=1\n")
+    writeFile(root / "app" / "app.ts", "const value = process.env.APP_ONLY;\n")
+    writeFile(root / "lib" / "lib.ts", "const value = process.env.LIB_ONLY;\n")
+    check run("git add -A", root).exitCode == 0
+    check run("git commit -m workspaces", root).exitCode == 0
+
+    let report = run(binary.quoteShell & " --all --format json", root)
+    let issues = parseJson(report.output)["issues"]
+    check issues.toSeq().countIt(it["rule"].getStr() == "readme-command-drift") == 1
+    check issues.toSeq().countIt(it["rule"].getStr() == "env-drift") == 1
+
+    writeFile(root / "scour.toml", "[scan]\nshared_root = true\n")
+    let shared = run(binary.quoteShell & " --all --format json", root)
+    check parseJson(shared.output)["issues"].toSeq().countIt(
+        it["rule"].getStr() == "readme-command-drift") == 0
+    check parseJson(shared.output)["issues"].toSeq().countIt(
+        it["rule"].getStr() == "env-drift") == 1
+
+  test "workflow working-directory resolves against the owning package":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-workspace-wd"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "app")
+    createDir(root / ".github" / "workflows")
+    writeFile(root / "app" / "package.json", "{\"scripts\":{\"apprun\":\"true\"}}\n")
+    writeFile(root / ".github" / "workflows" / "ci.yml", """jobs:
+  build:
+    steps:
+      - run: |
+          npm run apprun
+          npm run missingrun
+        working-directory: app
+      - run: 'npm run missingroot'
+""")
+    check run("git add .", root).exitCode == 0
+    check run("git commit -m workflows", root).exitCode == 0
+    let report = run(binary.quoteShell & " --all --format json", root)
+    let issues = parseJson(report.output)["issues"]
+    let drifts = issues.toSeq().filterIt(it["rule"].getStr() == "ci-command-drift")
+    check drifts.len == 1
+    check drifts[0]["file"].getStr() == ".github/workflows/ci.yml"
+
+  test "gitlab script blocks parse quoting and cd context":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-gitlab-script"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "app")
+    writeFile(root / "app" / "package.json", "{\"scripts\":{\"apprun\":\"true\"}}\n")
+    writeFile(root / ".gitlab-ci.yml", """build job:
+  before_script:
+    - "cd app && npm run apprun"
+  script:
+    - npm run apprun
+    - npm run missingrun
+""")
+    check run("git add .", root).exitCode == 0
+    check run("git commit -m gitlab", root).exitCode == 0
+    let report = run(binary.quoteShell & " --all --format json", root)
+    let issues = parseJson(report.output)["issues"]
+    check issues.toSeq().countIt(
+        it["rule"].getStr() == "ci-command-drift") == 2
+
+  test "dynamic commands stay unsupported rather than confidently broken":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-dynamic-commands"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / ".github" / "workflows")
+    writeFile(root / "package.json", "{\"scripts\":{\"known\":\"true\"}}\n")
+    writeFile(root / ".github" / "workflows" / "dynamic.yml", """jobs:
+  build:
+    steps:
+      - run: |
+          npm run $SCRIPT_NAME
+          npm run $(echo known)
+""")
+    check run("git add .", root).exitCode == 0
+    check run("git commit -m dynamic", root).exitCode == 0
+    let report = run(binary.quoteShell & " --all --format json", root)
+    check parseJson(report.output)["issues"].toSeq().countIt(
+        it["rule"].getStr() == "ci-command-drift") == 0

@@ -22,6 +22,7 @@ type
     scanMode*: string
     respectGitignore*: bool
     followSymlinks*: bool
+    sharedCommands*: bool
 
 proc defaultConfig*(): RuntimeConfig =
   RuntimeConfig(
@@ -37,7 +38,8 @@ proc defaultConfig*(): RuntimeConfig =
     failOn: failOnError,
     scanMode: "",
     respectGitignore: false,
-    followSymlinks: false
+    followSymlinks: false,
+    sharedCommands: false
   )
 
 proc canonicalRuleId*(key: string): string =
@@ -405,6 +407,8 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
         result.respectGitignore = parseBool(value, discovery.path, lineNumber)
       elif key == "follow_symlinks":
         result.followSymlinks = parseBool(value, discovery.path, lineNumber)
+      elif key == "shared_root":
+        result.sharedCommands = parseBool(value, discovery.path, lineNumber)
       else:
         fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
             ": " & qualified)
