@@ -4,6 +4,8 @@ when defined(posix):
 
 import ../src/scourpkg/cli
 import ../src/scourpkg/fixes
+import ../src/scourpkg/codequality_output
+import ../src/scourpkg/sarif_output
 import ../src/scourpkg/config
 import ../src/scourpkg/doctor_output
 import ../src/scourpkg/errors
@@ -2179,3 +2181,65 @@ jobs:
     let report = run(binary.quoteShell & " --all --format json", root)
     check report.exitCode == 2
     check "40-character SHA-1" in report.output
+
+suite "codequality and sarif serializers":
+  test "codequality output maps severities and stable fingerprints":
+    let plan = testPlan("", @[])
+    let rendered = parseJson(renderCodequalityIssues(@[
+      Issue(ruleId: "debugger", severity: severityError,
+          triage: triageFixNow, category: "hygiene", file: "src/a.ts",
+          line: 3, message: "Debugger statement found.", suggestion: "Remove."),
+      Issue(ruleId: "console-log", severity: severityWarning,
+          triage: triageReview, category: "hygiene", file: "src/a.ts",
+          line: 9, message: "console.log call found.", suggestion: "Remove.")
+    ], plan))
+    check rendered.len == 2
+    check rendered[0]["severity"].getStr() == "major"
+    check rendered[1]["severity"].getStr() == "minor"
+    check rendered[0]["check_name"].getStr() == "debugger"
+    check rendered[0]["fingerprint"].getStr().len == 40
+    check rendered[0]["location"]["path"].getStr() == "src/a.ts"
+    check rendered[0]["location"]["lines"]["begin"].getInt() == 3
+    let shifted = parseJson(renderCodequalityIssues(@[
+      Issue(ruleId: "debugger", severity: severityError,
+          triage: triageFixNow, category: "hygiene", file: "src/a.ts",
+          line: 30, message: "Debugger statement found.", suggestion: "Remove."),
+      Issue(ruleId: "console-log", severity: severityWarning,
+          triage: triageReview, category: "hygiene", file: "src/a.ts",
+          line: 90, message: "console.log call found.", suggestion: "Remove.")
+    ], plan))
+    check shifted[0]["fingerprint"].getStr() == rendered[0]["fingerprint"].getStr()
+
+  test "sarif output groups rules and maps levels":
+    let plan = testPlan("", @[])
+    let rendered = parseJson(renderSarifIssues(@[
+      Issue(ruleId: "debugger", severity: severityError,
+          triage: triageFixNow, category: "hygiene", file: "src\\dir\\b.ts",
+          line: 3, column: 2, message: "Debugger statement found.",
+          suggestion: "Remove."),
+      Issue(ruleId: "console-log", severity: severityWarning,
+          triage: triageReview, category: "hygiene", file: "b.ts",
+          message: "console.log call found.", suggestion: "Remove.")
+    ], plan))
+    check rendered["version"].getStr() == "2.1.0"
+    check rendered["runs"].len == 1
+    check rendered["runs"][0]["tool"]["driver"]["name"].getStr() == "scour"
+    let rules = rendered["runs"][0]["tool"]["driver"]["rules"]
+    check rules.len == 2
+    check rules[0]["id"].getStr() == "debugger"
+    check rules[0]["properties"]["category"].getStr() == "hygiene"
+    let resultsa = rendered["runs"][0]["results"]
+    check resultsa.len == 2
+    check resultsa[0]["level"].getStr() == "error"
+    check resultsa[1]["level"].getStr() == "warning"
+    check resultsa[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"].getStr() == "src/dir/b.ts"
+    check resultsa[0]["locations"][0]["physicalLocation"]["region"]["startLine"].getInt() == 3
+    check resultsa[1]["fingerprints"]["scour/finding-id/v1"].getStr().len == 40
+    check resultsa[1]["locations"].len == 1
+
+  test "clean scans render empty arrays in both formats":
+    let plan = testPlan("", @[])
+    check renderCodequalityIssues(@[], plan) == "[]\n"
+    let sarif = parseJson(renderSarifIssues(@[], plan))
+    check sarif["runs"][0]["results"].len == 0
+    check sarif["runs"][0]["tool"]["driver"]["rules"].len == 0

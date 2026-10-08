@@ -19,7 +19,7 @@ Options:
   --all            Scan all files under the repository root.
                    Default without a mode flag in any folder.
   --config <path>  Use an explicit config file.
-  --format <value> Output format: text, json, github, or doctor.
+  --format <value> Output format: text, json, github, codequality, sarif, or doctor.
   --fail-on <level> Fail on: error, warning, or info.
   --exit-zero      Return success even when findings meet the threshold.
   --color <value>  Color mode: auto, always, or never.
