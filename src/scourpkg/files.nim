@@ -76,7 +76,7 @@ proc filesFromGitDiff(root: string; args: string): seq[string] =
   let git = runGit(root, args)
   if git.exitCode != 0:
     fatal("git diff failed: " & git.output.strip())
-  for line in git.output.splitLines():
+  for line in git.output.split('\0'):
     if line.len > 0:
       result.addCandidate(root, line)
   result = uniqueSorted(result)
@@ -85,7 +85,7 @@ proc tryFilesFromGitDiff(root: string; args: string): tuple[ok: bool, files: seq
   let git = runGit(root, args)
   if git.exitCode != 0:
     return (false, @[])
-  for line in git.output.splitLines():
+  for line in git.output.split('\0'):
     if line.len > 0:
       result.files.addCandidate(root, line)
   result.ok = true
@@ -121,21 +121,21 @@ proc explicitFiles(root: string; paths: seq[string]): seq[string] =
 proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; runtimeConfig = defaultConfig()): tuple[baseRef: string, files, selectedFiles: seq[string]] =
   case mode
   of scanStaged:
-    result.files = filesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR")
+    result.files = filesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR -z")
   of scanChanged:
     if options.sinceRef.len > 0:
       result.baseRef = options.sinceRef
-      result.files = filesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR " & quoteShell(options.sinceRef & "...HEAD"))
+      result.files = filesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR -z " & quoteShell(options.sinceRef & "...HEAD"))
     else:
       for base in ["origin/main", "main", "master"]:
-        let attempt = tryFilesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR " & quoteShell(base & "...HEAD"))
+        let attempt = tryFilesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR -z " & quoteShell(base & "...HEAD"))
         if attempt.ok:
           result.baseRef = base
           result.files = attempt.files
           break
 
       if result.baseRef.len == 0:
-        let staged = tryFilesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR")
+        let staged = tryFilesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR -z")
         if staged.ok and staged.files.len > 0:
           result.baseRef = "staged"
           result.files = staged.files
