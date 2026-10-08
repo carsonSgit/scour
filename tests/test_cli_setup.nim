@@ -2243,3 +2243,41 @@ suite "codequality and sarif serializers":
     let sarif = parseJson(renderSarifIssues(@[], plan))
     check sarif["runs"][0]["results"].len == 0
     check sarif["runs"][0]["tool"]["driver"]["rules"].len == 0
+
+suite "rule precision across languages":
+  test "python test file names match the test_ prefix":
+    check "test_api.py".isTestPath()
+    check "api_test.py".isTestPath()
+    check "tests/test_ok.py".isTestPath()
+    check "contest.rb".isTestPath() == false
+    check "tests".isTestPath()
+    check "sample_spec.rb".isTestPath()
+  test "token boundaries stop prefix false positives":
+    let root = getTempDir() / "scour-precision-boundaries"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "vigil.ts", "let latest = 1; mydebugger = 2;\n")
+    writeFile(root / "cudgel.py", "x = breakpoint_impl(a)\n")
+    let plan = ScanPlan(
+      mode: scanExplicitPaths,
+      repo: RepoContext(root: root, isGit: false),
+      candidates: @["vigil.ts", "cudgel.py"],
+      selectedFiles: @["vigil.ts", "cudgel.py"],
+      stats: new ScanStats
+    )
+    let issues = scanBranchHygiene(plan)
+    check issues.hasIssue("debugger") == false
+
+  test "comment masking keeps documented examples out of results":
+    let root = getTempDir() / "scour-precision-masked"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "seen.ts", "const note = \"use debugger inside a string\";\n")
+    let masked = scanBranchHygiene(ScanPlan(
+      mode: scanExplicitPaths,
+      repo: RepoContext(root: root, isGit: false),
+      candidates: @["seen.ts"],
+      selectedFiles: @["seen.ts"],
+      stats: new ScanStats
+    ))
+    check masked.hasIssue("debugger") == false
