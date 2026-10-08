@@ -113,7 +113,9 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.patch-name }}-reports
-        path: "${{ steps.scour.outputs.before-path }}\n${{ steps.scour.outputs.patch-path }}"
+        path: |
+          ${{ steps.scour.outputs.before-path }}
+          ${{ steps.scour.outputs.patch-path }}
         if-no-files-found: warn
     - name: Upload post-fix report
       if: steps.scour.outputs.after-path != ''
