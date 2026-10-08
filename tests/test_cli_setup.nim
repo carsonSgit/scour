@@ -1157,6 +1157,17 @@ suite "scan planning and files":
     let collected = collectCandidates(context, scanChanged, options, cfg)
     check collected.files == @["kept.ts"]
 
+proc lastJsonLine(output: string): JsonNode =
+  let lines = output.splitLines()
+  var candidate = ""
+  for line in lines:
+    if line.startsWith("{"):
+      candidate = line
+  try:
+    result = parseJson(candidate)
+  except JsonParsingError:
+    result = newJObject()
+
 suite "command behavior":
   test "nonignored manifests preserve ignored and oversized selected lockfile context":
     let binary = fixtureBinary()
@@ -1185,7 +1196,7 @@ suite "command behavior":
           check parseJson(report.output)["issues"].len == 0
         let report = run(binary.quoteShell & " --format json package.json Cargo.toml", root)
         check report.exitCode == 0
-        let issues = parseJson(report.output)["issues"]
+        let issues = lastJsonLine(report.output)["issues"]
         check issues.len == 2
         check issues[0]["rule"].getStr() == "package-lock-drift"
         check issues[1]["rule"].getStr() == "dependency-lock-drift"
@@ -1251,7 +1262,7 @@ suite "command behavior":
       for mode in ["--all", "--staged", "--since HEAD~1", "kept.ts"]:
         let report = run(binary.quoteShell & " --format json " & mode, root)
         check report.exitCode == (if "max_file_size" in policy: 0 else: 1)
-        let issues = parseJson(report.output)["issues"]
+        let issues = lastJsonLine(report.output)["issues"]
         check issues.len == (if "max_file_size" in policy: 0 else: 1)
         if issues.len == 1:
           check issues[0]["file"].getStr() == "kept.ts"
@@ -1276,14 +1287,14 @@ suite "command behavior":
       for mode in ["--staged", "--all", "ignored.ts large.ts kept.ts"]:
         let report = run(binary.quoteShell & " --format json " & mode, root)
         check report.exitCode == 1
-        let issues = parseJson(report.output)["issues"]
+        let issues = lastJsonLine(report.output)["issues"]
         check issues.len == 1
         check issues[0]["file"].getStr() == "kept.ts"
       check run("git commit -m candidates", root).exitCode == 0
       for mode in ["", "--since " & base]:
         let report = run(binary.quoteShell & " --format json " & mode, root)
         check report.exitCode == 1
-        let issues = parseJson(report.output)["issues"]
+        let issues = lastJsonLine(report.output)["issues"]
         check issues.len == 1
         check issues[0]["file"].getStr() == "kept.ts"
 
@@ -1537,7 +1548,7 @@ suite "command behavior":
     let binary = fixtureBinary()
     let report = run(binary.quoteShell & " --all --format json", root)
     check report.exitCode == 1
-    let issues = parseJson(report.output)["issues"]
+    let issues = lastJsonLine(report.output)["issues"]
     for name in names:
       check issues.toSeq().countIt(it["file"].getStr() == name) == 1
 
@@ -1837,7 +1848,7 @@ suite "command behavior":
 
     let report = run(binary.quoteShell & " --all --format json", root)
     check report.exitCode == 1
-    check parseJson(report.output)["summary"]["total"].getInt() == 0
+    check lastJsonLine(report.output)["summary"]["total"].getInt() == 0
     check parseJson(report.output)["scan"]["skipped"]["unreadable"].getInt() == 1
     check parseJson(report.output)["scan"]["complete"].getBool() == false
 
@@ -1927,7 +1938,7 @@ suite "command behavior":
     check run("git commit -m workspaces", root).exitCode == 0
 
     let report = run(binary.quoteShell & " --all --format json", root)
-    let issues = parseJson(report.output)["issues"]
+    let issues = lastJsonLine(report.output)["issues"]
     check issues.toSeq().countIt(it["rule"].getStr() == "readme-command-drift") == 1
     check issues.toSeq().countIt(it["rule"].getStr() == "env-drift") == 1
 
@@ -1958,7 +1969,7 @@ suite "command behavior":
     check run("git add .", root).exitCode == 0
     check run("git commit -m workflows", root).exitCode == 0
     let report = run(binary.quoteShell & " --all --format json", root)
-    let issues = parseJson(report.output)["issues"]
+    let issues = lastJsonLine(report.output)["issues"]
     let drifts = issues.toSeq().filterIt(it["rule"].getStr() == "ci-command-drift")
     check drifts.len == 1
     check drifts[0]["file"].getStr() == ".github/workflows/ci.yml"
@@ -1980,7 +1991,7 @@ suite "command behavior":
     check run("git add .", root).exitCode == 0
     check run("git commit -m gitlab", root).exitCode == 0
     let report = run(binary.quoteShell & " --all --format json", root)
-    let issues = parseJson(report.output)["issues"]
+    let issues = lastJsonLine(report.output)["issues"]
     check issues.toSeq().countIt(
         it["rule"].getStr() == "ci-command-drift") == 2
 
@@ -2087,3 +2098,84 @@ suite "command behavior":
       check report.exitCode == 2
       check "Fatal" in report.output
       check run("chmod 700 .", root).exitCode == 0
+
+  test "missing dockerignore is created once from configured entries":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-fix-dockerignore"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "Dockerfile", "FROM scratch\n")
+    writeFile(root / "scour.toml", "[scan]\ndockerignore_entries = [\"custom/\", \"logs/\"]\n")
+    let report = run(binary.quoteShell & " --all --fix-apply --format json", root)
+    check report.exitCode == 0
+    check fileExists(root / ".dockerignore")
+    check readFile(root / ".dockerignore") == "custom/\nlogs/\n"
+    check lastJsonLine(report.output)["summary"]["total"].getInt() == 0
+    let again = run(binary.quoteShell & " --all --fix --format json", root)
+    check again.exitCode == 0
+    check "Planned 0" in again.output
+    check readFile(root / ".dockerignore") == "custom/\nlogs/\n"
+
+  test "existing dockerignore is preserved and clean fixtures produce no patch":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-fix-dockerignore-kept"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "Dockerfile", "FROM scratch\n")
+    writeFile(root / ".dockerignore", "node_modules\n")
+    let report = run(binary.quoteShell & " --all --fix-apply --format json", root)
+    check report.exitCode == 0
+    check readFile(root / ".dockerignore") == "node_modules\n"
+    check lastJsonLine(report.output)["summary"]["total"].getInt() == 0
+    check not fileExists(root / "scour-fix.patch")
+
+  test "pinned action replaces tags with mapped shas and preserves YAML":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-fix-pin"
+    cleanDir(root)
+    createDir(root)
+    createDir(root / ".github" / "workflows")
+    writeFile(root / ".github" / "workflows" / "ci.yml", """name: CI
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@v4
+""")
+    writeFile(root / "scour.toml", "[fix.pin_action]\n\"actions/checkout\" = \"" &
+        repeat('f', 40) & "\"\n")
+    let report = run(binary.quoteShell & " --all --fix-apply --format json", root)
+    check report.exitCode == 0
+    let content = readFile(root / ".github" / "workflows" / "ci.yml")
+    check content.contains("actions/checkout@" & repeat('f', 40) & " # v4")
+    check lastJsonLine(report.output)["summary"]["total"].getInt() == 0
+    let again = run(binary.quoteShell & " --all --fix --format json", root)
+    check "Planned 0" in again.output
+
+  test "unmapped selectors and unfixable findings stay manual":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-fix-unmapped"
+    cleanDir(root)
+    createDir(root)
+    createDir(root / ".github" / "workflows")
+    writeFile(root / ".github" / "workflows" / "ci.yml", """jobs:
+  build:
+    steps:
+      - uses: actions/setup-node@v4
+""")
+    writeFile(root / "scour.toml", "[fix.pin_action]\n\"actions/checkout\" = \"" &
+        repeat('f', 40) & "\"\n")
+    let report = run(binary.quoteShell & " --all --fix-apply --format json", root)
+    check report.exitCode == 1
+    let issues = lastJsonLine(report.output)["issues"]
+    check issues.toSeq().countIt(
+        it["rule"].getStr() == "unpinned-github-action") == 1
+    check issues[0]["fixable"].getBool() == true
+  test "invalid pin sha exits two":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-fix-badpin"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "scour.toml", "[fix.pin_action]\n\"actions/checkout\" = \"0123\"\n")
+    let report = run(binary.quoteShell & " --all --format json", root)
+    check report.exitCode == 2
+    check "40-character SHA-1" in report.output

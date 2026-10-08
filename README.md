@@ -19,7 +19,16 @@ follow_symlinks = false    # include symlinked files and directories
 
 [ignore]
 paths = ["dist/", "build/**"]
+
+[fix.pin_action]
+"actions/checkout@v4" = "5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f"
 ```
+
+Scan options:             --fix plans fixes to scour-fix.patch without touching
+files; --fix-apply applies them after content-hash verification and reruns the scan.
+Supported fixes stay bounded to: removing console.log and debugger lines, creating
+missing .dockerignore files from dockerignore_entries, and pinning GitHub Action
+references through [fix.pin_action] (40-character SHA-1 values only).
 
 Path patterns match repository-relative paths with `/` separators; backslashes
 are normalized. `path` and `path/` match the file or directory and everything

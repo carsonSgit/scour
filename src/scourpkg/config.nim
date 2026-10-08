@@ -1,4 +1,4 @@
-import os, strutils, sets
+import os, strutils, sets, tables
 
 import errors, issues, rule_catalog, scan_plan
 
@@ -23,6 +23,8 @@ type
     respectGitignore*: bool
     followSymlinks*: bool
     sharedCommands*: bool
+    dockerignoreEntries*: seq[string]
+    pinActions*: Table[string, string]
 
 proc defaultConfig*(): RuntimeConfig =
   RuntimeConfig(
@@ -39,7 +41,9 @@ proc defaultConfig*(): RuntimeConfig =
     scanMode: "",
     respectGitignore: false,
     followSymlinks: false,
-    sharedCommands: false
+    sharedCommands: false,
+    dockerignoreEntries: @["node_modules", ".git", ".cache", "__pycache__"],
+    pinActions: initTable[string, string]()
   )
 
 proc canonicalRuleId*(key: string): string =
@@ -333,7 +337,8 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
 
     if line.startsWith("[") and line.endsWith("]"):
       section = line[1 ..< line.high].strip()
-      if section notin ["rules", "triage", "ignore", "scan", "env", "output"]:
+      if section notin ["rules", "triage", "ignore", "scan", "env", "output",
+          "fix.pin_action"]:
         fatal("unknown config section in " & discovery.path & ":" &
             $lineNumber & ": " & section)
       continue
@@ -409,6 +414,9 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
         result.followSymlinks = parseBool(value, discovery.path, lineNumber)
       elif key == "shared_root":
         result.sharedCommands = parseBool(value, discovery.path, lineNumber)
+      elif key == "dockerignore_entries":
+        result.dockerignoreEntries = parseStringArray(value, discovery.path,
+            lineNumber, qualified)
       else:
         fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
             ": " & qualified)
@@ -426,6 +434,13 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
       else:
         result.ignoredEnvVars = parseStringArray(value, discovery.path,
             lineNumber, qualified)
+    of "fix.pin_action":
+      let reference = key.unquote()
+      let sha = value.unquote()
+      if sha.len != 40 or not sha.allCharsInSet({'0'..'9', 'a'..'f', 'A'..'F'}):
+        fatal("invalid config value in " & discovery.path & ":" & $lineNumber &
+            " for " & qualified & ": expected a 40-character SHA-1")
+      result.pinActions[reference] = sha
     of "output":
       case key
       of "color":
