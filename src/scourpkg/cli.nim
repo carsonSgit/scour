@@ -62,6 +62,16 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
       else: fatal("invalid --fail-on value: " & args[index])
     of "--exit-zero":
       options.exitZero = true
+    of "--baseline":
+      inc index
+      if index >= args.len:
+        fatal("--baseline requires a path")
+      options.baselinePath = args[index]
+    of "--write-baseline":
+      inc index
+      if index >= args.len:
+        fatal("--write-baseline requires a path")
+      options.baselineWrite = args[index]
     of "--fix":
       options.fixPreview = true
     of "--fix-apply":

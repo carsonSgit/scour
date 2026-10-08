@@ -4,6 +4,7 @@ when defined(posix):
 
 import ../src/scourpkg/cli
 import ../src/scourpkg/fixes
+import ../src/scourpkg/baseline
 import ../src/scourpkg/codequality_output
 import ../src/scourpkg/sarif_output
 import ../src/scourpkg/config
@@ -2281,3 +2282,79 @@ suite "rule precision across languages":
       stats: new ScanStats
     ))
     check masked.hasIssue("debugger") == false
+
+suite "baseline and suppressions":
+  test "baseline writes fingerprints and gates only new findings":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-baseline"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", "debugger;\nconsole.log('dbg');\n")
+    let writeRun = run(binary.quoteShell & " --all --write-baseline baseline.json --format json", root)
+    check writeRun.exitCode == 0
+    check "Baseline written to baseline.json" in writeRun.output
+    check fileExists(root / "baseline.json")
+    let parsed = parseJson(readFile(root / "baseline.json"))
+    check parsed["version"].getInt() == 1
+    check parsed["findings"].kind == JArray
+
+    let gated = run(binary.quoteShell &
+        " --all --baseline baseline.json --format json", root)
+    check gated.exitCode == 0
+    check lastJsonLine(gated.output)["summary"]["total"].getInt() == 0
+
+    writeFile(root / "new.ts", "debugger;\n")
+    let stillEclusive = run(binary.quoteShell &
+        " --all --baseline baseline.json --format json", root)
+    check stillEclusive.exitCode == 1
+    check lastJsonLine(stillEclusive.output)["summary"]["total"].getInt() == 1
+
+  test "malformed baseline or incomplete scans fail with exit two":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-baseline-errors"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", "debugger;\n")
+    writeFile(root / "baseline.json", "not json")
+    let broken = run(binary.quoteShell &
+        " --all --baseline baseline.json --format json", root)
+    check broken.exitCode == 2
+    check "not valid JSON" in broken.output
+
+    when defined(posix):
+      writeFile(root / "sealed.ts", "debugger;\n")
+      check run("chmod 000 sealed.ts", root).exitCode == 0
+      let refuse = run(binary.quoteShell &
+          " --all --write-baseline baseline.json --format json", root)
+      check refuse.exitCode == 2
+      check "incomplete baseline" in refuse.output
+
+  test "suppressions with expiry gate findings until they expire":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-suppress"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", "debugger;\n")
+    writeFile(root / "scour.toml", """
+[suppress.1]
+rule = "debugger"
+file = "app.ts"
+line = 1
+reason = "intentional demo"
+expires = "2099-01-01"
+""")
+    let suppressed = run(binary.quoteShell & " --all --format json", root)
+    check suppressed.exitCode == 0
+    check lastJsonLine(suppressed.output)["summary"]["total"].getInt() == 0
+
+    writeFile(root / "scour.toml", """
+[suppress.1]
+rule = "debugger"
+file = "app.ts"
+line = 1
+reason = "intentional demo"
+expires = "2020-01-01"
+""")
+    let expired = run(binary.quoteShell & " --all --format json", root)
+    check expired.exitCode == 1
+    check lastJsonLine(expired.output)["summary"]["total"].getInt() == 1

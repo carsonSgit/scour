@@ -1,5 +1,6 @@
-import sequtils, strutils, os, cli, config, errors, files, fixes, help, issues, output, repo,
-    rule_catalog, rule_output, scan_plan, triage_output
+import sequtils, strutils, os, std/times, baseline, cli, config, errors, files,
+    fixes, help, issues, output, repo, rule_catalog, rule_output, scan_plan,
+    triage_output
 import rules/branch_hygiene
 import rules/cross_reference
 import rules/repo_hygiene
@@ -74,12 +75,50 @@ proc runScour*(): int =
       return 0
     of commandScan, commandTriage:
       discard
+    if options.baselineWrite.len > 0:
+      let modeProbe = resolveScanMode(options, repoContext,
+          runtimeConfig.scanMode)
+      let probe = scanOnce(options, modeProbe, repoContext, configDiscovery,
+          runtimeConfig)
+      if probe.plan.stats.unreadable > 0 or probe.plan.stats.missing > 0:
+        stderr.writeLine("Fatal: refusing an incomplete baseline; resolve unreadable or missing inputs first")
+        return 2
+      writeBaselineFile(options.baselineWrite, probe.issues)
+      stdout.writeLine("Baseline written to " & options.baselineWrite & " (" &
+          $probe.issues.len & " findings)")
+      return 0
     let mode = resolveScanMode(options, repoContext, runtimeConfig.scanMode)
     let outcome = scanOnce(options, mode, repoContext, configDiscovery,
         runtimeConfig)
-    let plan = outcome.plan
+    var plan = outcome.plan
+    var effectiveIssues = outcome.issues
+    var baselineIds: seq[string] = @[]
+    if options.baselinePath.len > 0:
+      baselineIds = loadBaselineIds(options.baselinePath)
+      plan.baselinePath = options.baselinePath
+      let separated = applyBaseline(effectiveIssues, baselineIds)
+      effectiveIssues = separated.active
+      plan.suppressedCount = separated.suppressed
+    var activeIssues: seq[Issue]
+    var suppressedCount = plan.suppressedCount
+    let today = now().format("yyyy-MM-dd")
+    for issueBlock in effectiveIssues:
+      let issue = issueBlock
+      var suppressed = false
+      for suppression in runtimeConfig.suppressions:
+        if suppressionApplies(suppression, issue):
+          if isExpiredYmd(suppression.expires, today):
+            break
+          suppressed = true
+          break
+      if suppressed:
+        inc suppressedCount
+      else:
+        activeIssues.add(issue)
+    plan.suppressedCount = suppressedCount
+    effectiveIssues = activeIssues
     if options.fixPreview:
-      let fixPlan = planFixes(outcome.issues, repoContext.root, runtimeConfig,
+      let fixPlan = planFixes(effectiveIssues, repoContext.root, runtimeConfig,
           outcome.plan.stats)
       let patchPath = repoContext.root & DirSep & "scour-fix.patch"
       writePatchFile(fixPlan, patchPath)
@@ -92,7 +131,7 @@ proc runScour*(): int =
           "; patch written to scour-fix.patch. No checkout files changed.")
       return 0
     if options.fixApply:
-      let fixPlan = planFixes(outcome.issues, repoContext.root, runtimeConfig,
+      let fixPlan = planFixes(effectiveIssues, repoContext.root, runtimeConfig,
           outcome.plan.stats)
       var plannedFindings = 0
       for entry in fixPlan:
@@ -145,11 +184,12 @@ proc runScour*(): int =
         return 1
       return 0
     if options.command == commandTriage:
-      stdout.write(renderTriage(outcome.issues))
+      stdout.write(renderTriage(effectiveIssues))
     else:
-      stdout.write(renderIssues(outcome.issues, outcome.effectiveOptions, plan))
+      stdout.write(renderIssues(effectiveIssues, outcome.effectiveOptions,
+          plan))
     if not outcome.effectiveOptions.exitZero and (
-        outcome.issues.hasFailingIssues(outcome.effectiveOptions.failOn) or
+        effectiveIssues.hasFailingIssues(outcome.effectiveOptions.failOn) or
         plan.stats.unreadable > 0 or plan.stats.missing > 0):
       1
     else:

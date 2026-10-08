@@ -41,6 +41,8 @@ type
     exitZero*: bool
     fixPreview*: bool
     fixApply*: bool
+    baselinePath*: string
+    baselineWrite*: string
     staged*: bool
     all*: bool
     sinceRef*: string
@@ -66,6 +68,9 @@ type
     candidates*: seq[string]
     selectedFiles*: seq[string]
     stats*: ScanStats
+    baselinePath*: string
+    baselineSuppressed*: int
+    suppressedCount*: int
 
 proc modeName*(mode: ScanMode): string =
   case mode

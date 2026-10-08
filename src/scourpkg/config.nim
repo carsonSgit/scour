@@ -3,6 +3,13 @@ import os, strutils, sets, tables
 import errors, issues, rule_catalog, scan_plan
 
 type
+  Suppression* = object
+    rule*: string
+    file*: string
+    line*: int
+    reason*: string
+    expires*: string
+
   RuleOverride* = object
     ruleId*: string
     severity*: RuleSeverity
@@ -25,6 +32,8 @@ type
     sharedCommands*: bool
     dockerignoreEntries*: seq[string]
     pinActions*: Table[string, string]
+    suppressions*: seq[Suppression]
+
 
 proc defaultConfig*(): RuntimeConfig =
   RuntimeConfig(
@@ -43,7 +52,8 @@ proc defaultConfig*(): RuntimeConfig =
     followSymlinks: false,
     sharedCommands: false,
     dockerignoreEntries: @["node_modules", ".git", ".cache", "__pycache__"],
-    pinActions: initTable[string, string]()
+    pinActions: initTable[string, string](),
+    suppressions: @[]
   )
 
 proc canonicalRuleId*(key: string): string =
@@ -294,6 +304,35 @@ proc stripComment(line: string): string =
   else:
     line.strip()
 
+proc suppressionsParse(config: var RuntimeConfig; section, key, value,
+    path: string; lineNumber: int; qualified: string) =
+  let index = section[9 ..< section.len]  # after "suppress."
+  if index.len == 0 or not index.allCharsInSet({'0'..'9'}):
+    fatal("unknown config section in " & path & ":" & $lineNumber & ": " & section)
+  var slot = index.parseInt()
+  while config.suppressions.len < slot:
+    config.suppressions.add(Suppression())
+  let target = config.suppressions[slot - 1].addr
+  case key
+  of "rule":
+    target[].rule = value.unquote()
+  of "file":
+    target[].file = value.unquote()
+  of "line":
+    let parsed = value.strip()
+    target[].line =
+      try:
+        parseInt(parsed)
+      except ValueError:
+        fatal("invalid config value in " & path & ":" & $lineNumber &
+            " for " & qualified & ": expected a line number")
+  of "reason":
+    target[].reason = value.unquote()
+  of "expires":
+    target[].expires = value.unquote()
+  else:
+    fatal("unknown config key in " & path & ":" & $lineNumber & ": " & qualified)
+
 proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
   result = defaultConfig()
   if discovery.path.len == 0:
@@ -338,7 +377,7 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
     if line.startsWith("[") and line.endsWith("]"):
       section = line[1 ..< line.high].strip()
       if section notin ["rules", "triage", "ignore", "scan", "env", "output",
-          "fix.pin_action"]:
+          "fix.pin_action"] and not section.startsWith("suppress."):
         fatal("unknown config section in " & discovery.path & ":" &
             $lineNumber & ": " & section)
       continue
@@ -463,8 +502,12 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
         fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
             ": " & qualified)
     else:
-      fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
-          ": " & qualified)
+      if section.startsWith("suppress."):
+        suppressionsParse(result, section, key, value, discovery.path,
+            lineNumber, qualified)
+      else:
+        fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
+            ": " & qualified)
 
   if pendingKey.len > 0:
     fatal("invalid config syntax in " & discovery.path & ":" & $pendingLine)
