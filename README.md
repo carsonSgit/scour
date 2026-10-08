@@ -149,6 +149,47 @@ format = "github"
 
 Explicit CLI flags override config values.
 
+## GitLab CI
+
+Use the same binary from a version-pinned release. The job needs no Nim
+compiler, clones with enough history for `scour --since` (or `--all`), and
+retains reports when Scour fails:
+
+```yaml
+scour:
+  image: curlimages/curl:8.5.0
+  stage: test
+  script:
+    - curl -fsSL "https://github.com/carsonSgit/scour/releases/download/v0.4.5/scour-v0.4.5-linux-x86_64.tar.gz" -o scour.tar.gz
+    - curl -fsSL "https://github.com/carsonSgit/scour/releases/download/v0.4.5/scour-v0.4.5-checksums.txt" | grep " scour.tar.gz" - > checksums.txt || true
+    - sha256sum scour.tar.gz | grep -q "$(cat checksums.txt)"
+    - tar -xzf scour.tar.gz
+    - git fetch --unshallow || git fetch --depth=50 origin main || true
+    - ./scour --since "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --format codequality > codequality.json || true
+  artifacts:
+    when: always
+    reports:
+      codequality: codequality.json
+    paths:
+      - scour-fix.patch
+      - scan-before.json
+```
+
+Generic CI (any shell, any provider): install the binary through
+`scripts/install.sh` (honors `FAKE`, `NO_PROXY`, `HTTPS_PROXY` through curl;
+preinstall `curl`), run `scour --all --format json > scan.json`, and **retain
+`scan.json` and `scour-fix.patch` as build artifacts with
+`when: always` so fatal failures also keep their evidence.** To apply a patch
+that CI produced, pull the artifact and run
+`git apply scour-fix.patch && git commit && git push` locally; CI never pushes,
+commits, or force-requests changes on your behalf. Read-only fork pipelines need
+no write token because all writes land in artifacts.
+
+For SARIF ingestion (GitHub code scanning needs `security-events: write` and the
+`github/codeql-action/upload-sarif` step pointed at `output.sarif`), run
+`scour --format sarif > output.sarif`. Where native code scanning is
+unavailable, attach the artifact and read it directly.
+
 ## Triage
 
 Group findings into a deterministic fix-order report while preserving normal
