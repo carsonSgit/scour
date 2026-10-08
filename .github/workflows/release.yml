@@ -218,7 +218,7 @@ jobs:
           VERSION: v${{ needs.prepare.outputs.version }}
         run: |
           mkdir package
-          cp scour README.md package/
+          cp scour README.md LICENSE package/
           tar -czf "scour-${VERSION}-${{ matrix.target }}.tar.gz" -C package .
       - name: Package Windows archive
         if: runner.os == 'Windows'
@@ -227,7 +227,7 @@ jobs:
           VERSION: v${{ needs.prepare.outputs.version }}
         run: |
           New-Item -ItemType Directory -Path package
-          Copy-Item scour README.md package/
+          Copy-Item scour README.md LICENSE package/
           Compress-Archive -Path package/* -DestinationPath "scour-$env:VERSION-${{ matrix.target }}.zip"
       - name: Win verify (extract archive, run binary)
         if: runner.os == 'Windows'
@@ -284,6 +284,7 @@ jobs:
           verify/scour --version
           verify/scour --help >/dev/null
           verify/scour --scan ./verify --format json >/dev/null
+          test -f verify/LICENSE
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         if: env.validate_only != 'true'
         with:
