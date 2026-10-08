@@ -1,4 +1,6 @@
-import json, os, osproc, sequtils, strutils, unittest
+import json, os, osproc, sequtils, strutils, times, unittest
+when defined(posix):
+  import posix
 
 import ../src/scourpkg/cli
 import ../src/scourpkg/config
@@ -1724,3 +1726,63 @@ suite "command behavior":
     let withFollow = collectCandidates(context, scanAll, CliOptions(), config)
     check withFollow.files.count("followed.ts") == 1
     check withFollow.files.len == withoutFollow.files.len + 1
+
+  test "boundary failures are tracked and cannot scan clean":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-boundary"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "outside-target.ts", "const outside = 1;\n")
+    check run("git add .", root).exitCode == 0
+    check run("git commit -m base", root).exitCode == 0
+    writeFile(root / "plain.ts", "const plain = 1;\n")
+    check run("rm -f dangling.ts && ln -s missing.ts dangling.ts", root).exitCode == 0
+    check run("ln -s loop.ts loop.ts", root).exitCode == 0
+    writeFile(root / "sealed.ts", "const sealed = 1;\n")
+    check run("chmod 000 sealed.ts", root).exitCode == 0
+
+    let context = RepoContext(root: root, isGit: true)
+    let stats = new ScanStats
+    let collected = collectCandidates(context, scanAll, CliOptions(), defaultConfig(), stats)
+    check collected.files.count("plain.ts") == 1
+    check collected.files.count("sealed.ts") == 0
+    check collected.files.count("dangling.ts") == 0
+    check collected.files.count("loop.ts") == 0
+    check stats.unreadable == 1
+
+    let outside = getTempDir() / "outside-scour-boundary.ts"
+    let explicitStats = new ScanStats
+    let outsideCollected = collectCandidates(context, scanExplicitPaths,
+        CliOptions(explicitPaths: @[outside]), defaultConfig(), explicitStats)
+    check outsideCollected.files.len == 0
+    check explicitStats.missing == 1
+
+    let report = run(binary.quoteShell & " --all --format json", root)
+    check report.exitCode == 1
+    check parseJson(report.output)["summary"]["total"].getInt() == 0
+    check parseJson(report.output)["scan"]["skipped"]["unreadable"].getInt() == 1
+
+  test "large trees stay inside recorded runtime and memory limits":
+    let root = getTempDir() / "scour-large-tree"
+    cleanDir(root)
+    for directoryIndex in 0 ..< 20:
+      let directory = root / ("dir" & $directoryIndex)
+      createDir(directory)
+      for fileIndex in 0 ..< 100:
+        writeFile(directory / ("file" & $fileIndex & ".ts"),
+            "const value = " & $fileIndex & ";\n")
+
+    let started = epochTime()
+    let stats = new ScanStats
+    let collected = collectCandidates(RepoContext(root: root, isGit: false),
+        scanAll, CliOptions(), defaultConfig(), stats)
+    let elapsed = epochTime() - started
+    check collected.files.len == 2000
+    check elapsed < 30.0
+    when defined(posix):
+      var usage: Rusage
+      discard getrusage(RUSAGE_SELF, addr usage)
+      when defined(macosx):
+        check usage.ruMaxrss < 1_000_000_000
+      else:
+        check usage.ruMaxrss < 1_000_000

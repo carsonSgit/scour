@@ -23,6 +23,9 @@ proc renderJsonIssues*(issues: openArray[Issue]; plan: ScanPlan): string =
     of scanChanged: plan.sinceRef
     of scanStaged: "staged"
     else: ""
+  var skipped = new ScanStats
+  if not plan.stats.isNil:
+    skipped = plan.stats
   $(%*{
     "summary": {
       "errors": summary.bySeverity.errors,
@@ -42,7 +45,13 @@ proc renderJsonIssues*(issues: openArray[Issue]; plan: ScanPlan): string =
       "mode": modeName(plan.mode),
       "base": baseRef,
       "head": "HEAD",
-      "scanned_files": plan.candidates.len
+      "scanned_files": plan.candidates.len,
+      "skipped": {
+        "binary": skipped.binarySkipped,
+        "oversized": skipped.oversizedSkipped,
+        "unreadable": skipped.unreadable,
+        "missing": skipped.missing
+      }
     },
     "score": {
       "current": score.current,

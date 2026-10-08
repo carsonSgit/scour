@@ -85,6 +85,8 @@ proc scanBranchHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Is
   for candidate in plan.candidates:
     let path = plan.repo.root / candidate
     if not fileExists(path):
+      if plan.stats != nil:
+        inc(plan.stats.missing)
       continue
 
     let kind = candidate.sourceLexKind()
@@ -93,7 +95,14 @@ proc scanBranchHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Is
     let testFile = candidate.isTestPath()
     var state: SourceLexState
     var lineNumber = 0
-    for line in readFile(path).splitLines():
+    var source = ""
+    try:
+      source = readFile(path)
+    except IOError, OSError:
+      if plan.stats != nil:
+        inc(plan.stats.unreadable)
+      continue
+    for line in source.splitLines():
       inc lineNumber
       result.scanMergeConflict(candidate, line, lineNumber)
       let code = line.maskSourceLine(kind, state)
