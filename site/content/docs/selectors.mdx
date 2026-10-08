@@ -1,0 +1,31 @@
+---
+title: Scan modes
+description: Scan staged changes, a commit range, or the whole tree. Pick a report format and failure threshold.
+---
+
+## Selectors
+
+| Flag       | Input                                  | Use                                   |
+| ---------- | -------------------------------------- | ------------------------------------- |
+| `--staged` | staged changes                         | pre-commit sweep                      |
+| `--since`  | a ref or SHA                           | pull-request range                    |
+| `--all`    | the whole tree                         | going green on a dirty repo           |
+
+## Formats
+
+```bash
+scour --format json --fail-on warning
+scour --format github
+scour --format doctor
+scour --format sarif > output.sarif
+```
+
+Formats: `text` (default), `json`, `github` (workflow annotations), `doctor`
+(a gauge with prioritized next steps), `sarif`, and `codequality` for GitLab.
+
+## Thresholds and exit codes
+
+`--fail-on` accepts `error`, `warning`, or `info`; findings at or above that
+severity exit `1`, so severity slots map directly to CI gates.
+`--exit-zero` suppresses issue-based failures only — malformed arguments still
+exit `2`.

@@ -1,47 +1,42 @@
-import { GlitchHeading } from './GlitchHeading'
-
-const inputs = ['since', 'staged', 'all', 'format', 'fail-on', 'config', 'version', 'exit-zero', 'triage']
+import { Win } from './Win'
 
 export function GithubAction() {
   return (
-    <section id="github-action" className="px-5 py-16 sm:px-7">
-      <div className="mx-auto w-full max-w-[560px]">
-        <GlitchHeading as="h2" className="text-lg font-semibold tracking-[-0.02em] text-primary">
-          Drop it in CI.
-        </GlitchHeading>
-        <p className="mt-2 mb-5">
-          One step. Fails the build on errors, annotates warnings inline.
-        </p>
-        <pre className="overflow-x-auto rounded bg-surface px-5 py-[18px] font-mono text-xs leading-loose">
-          <code>
-            <span className="text-muted">- </span>
-            <span className="text-info">uses</span>
-            <span className="text-muted">: </span>
-            <span className="text-ok">carsonSgit/scour@v0.4.5</span>
-            {'\n'}
-            <span className="text-muted">  </span>
-            <span className="text-info">with</span>
-            <span className="text-muted">:</span>
-            {'\n'}
-            <span className="text-muted">    </span>
-            <span className="text-info">fail-on</span>
-            <span className="text-muted">: </span>
-            <span className="text-ok">warning</span>
-            {'\n'}
-            <span className="text-muted">    </span>
-            <span className="text-info">triage</span>
-            <span className="text-muted">: </span>
-            <span className="text-ok">"true"</span>
-          </code>
-        </pre>
-        <p className="mt-4 text-[13px]">
-          <span className="text-muted">Inputs: </span>
-          {inputs.map((name) => (
-            <code key={name} className="mr-2 font-mono text-faint">
-              {name}
+    <section id="github-action" className="bg-surface-raised px-7 py-16 md:px-14 md:py-20">
+      <div className="grid items-center gap-12 lg:grid-cols-[0.95fr_1.05fr]">
+        <Win title=".github/workflows/ci.yml">
+          <pre className="overflow-x-auto px-[18px] py-4 font-mono text-[12.5px] leading-[1.75] text-primary">
+            <code>
+              <span className="text-faint">- </span>
+              <span className="text-[#6558f5] font-medium">uses</span>
+              <span className="text-faint">: </span>
+              <span className="text-ok">carsonSgit/scour@v0.4.5</span>
+              {'\n'}  <span className="text-faint">with:</span>
+              {'\n'}    <span className="text-[#6558f5] font-medium">version</span>
+              <span className="text-faint">: </span>
+              <span className="text-ok">v0.4.5</span>
+              {'\n'}    <span className="text-[#6558f5] font-medium">fail-on</span>
+              <span className="text-faint">: </span>
+              <span className="text-ok">warning</span>
+              {'\n'}    <span className="text-[#6558f5] font-medium">triage</span>
+              <span className="text-faint">: </span>
+              <span className="text-ok">"true"</span>
             </code>
-          ))}
-        </p>
+          </pre>
+        </Win>
+
+        <div>
+          <h2 className="text-[clamp(1.75rem,3vw,2.25rem)] font-bold tracking-[-0.03em] text-primary">
+            Runs where your merges run.
+          </h2>
+          <p className="mt-5 max-w-[46ch] text-[17px] leading-normal text-secondary">
+            One GitHub Action drop-in. Pin both action and binary, fail on your threshold,
+            and ship fixes as reviewable patch artifacts — never direct commits.
+          </p>
+          <p className="mt-5 max-w-[46ch] text-[13.5px] text-muted">
+            Also speaks JSON, SARIF, GitHub annotations, and Code Quality reports for GitLab.
+          </p>
+        </div>
       </div>
     </section>
   )

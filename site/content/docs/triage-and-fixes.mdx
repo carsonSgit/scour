@@ -1,0 +1,42 @@
+---
+title: Triage and fixes
+description: Group findings by fix order, and apply bounded fixes through a reviewed patch.
+---
+
+## Triage
+
+```bash title="Group by priority"
+scour triage --all
+scour triage --staged
+scour triage --since main
+```
+
+Triage regroups findings into a deterministic fix order:
+
+- **BLOCKERS** — kill these before anything else
+- **FIX NOW** — small, safe, do them today
+- **REVIEW** — parked for a human decision
+
+Triage uses its own text renderer, so it rejects explicit `--format` flags.
+
+## Supported fixes
+
+```bash title="Plan, then apply"
+scour --fix
+# writes scour-fix.patch without touching files
+git apply scour-fix.patch
+```
+
+Fixes stay bounded:
+
+- removing `console.log` and `debugger` lines
+- creating missing `.dockerignore` files from `dockerignore_entries`
+- pining GitHub Action references through `[fix.pin_action]` (40-char SHA only)
+
+`--fix-apply` applies a planned patch after content-hash verification, then
+reruns the scan to confirm it.
+
+<Callout type="info">
+  CI never pushes or commits on your behalf — fixes always ship as patch
+  artifacts you review locally.
+</Callout>
