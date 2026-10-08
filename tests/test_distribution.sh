@@ -122,9 +122,26 @@ export PATH="$tmp/action-bin:$PATH"
 export SCOUR_INPUT_SINCE=main SCOUR_INPUT_STAGED=false SCOUR_INPUT_ALL=false
 export SCOUR_INPUT_FORMAT=github SCOUR_INPUT_FAIL_ON=warning SCOUR_INPUT_CONFIG=scour.toml
 export SCOUR_INPUT_VERSION=v0.2.0 SCOUR_INPUT_EXIT_ZERO=false SCOUR_INPUT_TRIAGE=true
+export SCOUR_INPUT_FIX=none SCOUR_INPUT_PATCH_NAME=scour-fix
 if "$root/scripts/run-action.sh"; then fail "annotation exit code was not propagated"; fi
 assert_contains "$tmp/calls" "--since main --config scour.toml --fail-on warning --format json"
 assert_contains "$tmp/output" "total=4"
 assert_contains "$tmp/output" "fix-now=1"
 assert_contains "$tmp/summary" "triage report"
+grep '^\(git push\|git commit\)' "$tmp/calls" >/dev/null 2>&1 && fail "repository was modified by the action"
+assert_contains "$tmp/output" "patch-path="
+assert_contains "$tmp/output" "before-path="
+assert_contains "$tmp/output" "fixed=0"
+assert_contains "$tmp/output" "remaining=0"
+assert_contains "$tmp/output" "unfixable=0"
+
+# fix=preview uses only --fix and keeps the scan read-only, with the patch copied out
+: > "$tmp/calls"
+: > "$tmp/output"
+mkdir -p "$tmp/runner"
+export SCOUR_INPUT_FIX=preview
+if "$root/scripts/run-action.sh"; then fail "preview exit code was not propagated"; fi
+assert_contains "$tmp/calls" " --fix "
+[[ "$(grep -c ' --format json' "$tmp/calls")" -ge 1 ]] || fail "preview did not scan"
+grep -- '--fix-apply' "$tmp/calls" >/dev/null 2>&1 && fail "preview must not apply"
 echo "distribution tests passed"
