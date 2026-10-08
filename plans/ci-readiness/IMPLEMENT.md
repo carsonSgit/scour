@@ -16,7 +16,7 @@ The runner starts fresh Codex implementation and read-only review sessions for e
 
 Keep the 21 local specification files beside the script. They are the approved task snapshot; the runner rejects changed specifications on resume. Install `uv` and authenticate Codex before starting. The controller supports macOS and Linux.
 
-Each issue gets a branch named `feature/qrtx-00/scour-<number>` based on the preceding verified branch. The first branch targets the branch where the loop starts. These are local stacked branches, with one issue per branch delta.
+Each issue gets a branch named `feature/scour-<number>` based on the preceding verified branch. The first branch targets the branch where the loop starts. These are local stacked branches, with one issue per branch delta.
 
 Implementation sessions run with filesystem access to install required local tools and create verified commits. Review sessions use a read-only sandbox. The implementation agent must preserve the handoff files and run the existing scope/review gates before advancing.
 
