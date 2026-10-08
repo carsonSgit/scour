@@ -12,9 +12,22 @@ type
 proc addFirstPatternIssue(result: var seq[Issue]; file, code: string;
     lineNumber: int; rule: LineRule) =
   for pattern in rule.patterns:
-    let column = code.find(pattern)
-    if column >= 0:
-      result.add(newRuleIssue(rule.id, file, rule.message, lineNumber, column + 1))
+    var index = code.find(pattern)
+    while index >= 0:
+      let before = if index > 0: code[index - 1] else: ' '
+      let after =
+        if index + pattern.len < code.len: code[index + pattern.len] else: ' '
+      let boundaryToken = pattern[^1] in {';', ')', '\''} or
+          pattern[0] in {'(', ' '}
+      if boundaryToken or (before.isSpaceAscii() or not before.isAlphaAscii()) or
+          (after.isSpaceAscii() or after in {'(', ';', '=', '.', '-'}):
+        result.add(newRuleIssue(rule.id, file, rule.message, lineNumber,
+            index + 1))
+        return
+      index = code.find(pattern, index + 1)
+    if index >= 0:
+      result.add(newRuleIssue(rule.id, file, rule.message, lineNumber,
+          index + 1))
       return
 
 proc scanMergeConflict(result: var seq[Issue]; file, line: string;
@@ -25,12 +38,14 @@ proc scanMergeConflict(result: var seq[Issue]; file, line: string;
           "Merge conflict marker found.", lineNumber, 1))
       return
 
-proc isTestPath(path: string): bool =
+proc isTestPath*(path: string): bool =
   let normalized = path.replace('\\', '/').toLowerAscii()
   let name = normalized.splitFile.name
-  name.endsWith("test") or name.endsWith("tests") or name.endsWith("spec") or
+  name == "test" or name.startsWith("test_") or name.endsWith("_test") or
+      name == "spec" or name.endsWith("spec") or
       "/test/" in normalized or "/tests/" in normalized or
-      "/spec/" in normalized or "/specs/" in normalized
+      "/spec/" in normalized or "/specs/" in normalized or
+      name in ["tests", "specs"]
 
 proc debuggerRule(path: string): LineRule =
   case path.extension()
