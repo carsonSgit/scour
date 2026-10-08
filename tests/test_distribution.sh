@@ -144,4 +144,41 @@ if "$root/scripts/run-action.sh"; then fail "preview exit code was not propagate
 assert_contains "$tmp/calls" " --fix "
 [[ "$(grep -c ' --format json' "$tmp/calls")" -ge 1 ]] || fail "preview did not scan"
 grep -- '--fix-apply' "$tmp/calls" >/dev/null 2>&1 && fail "preview must not apply"
+
+# fatal failure (exit 2) never yields null counters
+: > "$tmp/calls"
+: > "$tmp/output"
+cat > "$tmp/fake-scour" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$SCOUR_CALLS"
+case "$*" in
+  *--format\ json*) echo "not json at all"; exit 2;;
+  *triage*) echo "triage report";;
+  *) echo "::error file=app.ts,line=1::finding"; exit 2;;
+esac
+EOF
+chmod +x "$tmp/fake-scour"
+export SCOUR_INPUT_FIX=none
+if "$root/scripts/run-action.sh"; then fail "fatal exit code was not propagated"; fi
+assert_contains "$tmp/output" "total=0"
+assert_contains "$tmp/output" "errors=0"
+grep 'total=null' "$tmp/output" >/dev/null 2>&1 && fail "null counters parsed as success"
+grep '^\(git push\|git commit\)' "$tmp/calls" >/dev/null 2>&1 && fail "repository was modified after fatal failure"
+
+# invalid fix input is rejected with exit 2 before any scan
+: > "$tmp/calls"
+: > "$tmp/output"
+export SCOUR_INPUT_FIX=sometimes
+if "$root/scripts/run-action.sh" 2>"$tmp/fix.err"; then fail "invalid fix input accepted"; fi
+assert_contains "$tmp/fix.err" "fix must be none, preview, or apply"
+[[ ! -s "$tmp/calls" ]] || fail "scan ran despite invalid fix input"
+export SCOUR_INPUT_FIX=none
+
+# thresholds and triage continue propagating between scans
+: > "$tmp/output"
+export SCOUR_INPUT_FAIL_ON=warning SCOUR_INPUT_TRIAGE=true
+if "$root/scripts/run-action.sh"; then fail "threshold failure was not propagated"; fi
+assert_contains "$tmp/output" "warnings=0"
+assert_contains "$tmp/summary" "triage report"
+
 echo "distribution tests passed"

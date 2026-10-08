@@ -17,7 +17,7 @@ export function GithubAction() {
             <span className="text-muted">- </span>
             <span className="text-info">uses</span>
             <span className="text-muted">: </span>
-            <span className="text-ok">carsonSgit/scour@v1</span>
+            <span className="text-ok">carsonSgit/scour@v0.4.5</span>
             {'\n'}
             <span className="text-muted">  </span>
             <span className="text-info">with</span>
