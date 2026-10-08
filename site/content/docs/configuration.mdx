@@ -1,0 +1,54 @@
+---
+title: Configuration
+description: Every scour option lives in one toml file. Defaults work out of the box.
+---
+
+The default `scour.toml`:
+
+```toml title="scour.toml"
+fail_on = "error"          # error, warning, or info
+
+[scan]
+max_file_size = "1 MB"     # bytes, KB, or MB
+mode = "full"              # full or staged; CLI flags win
+respect_gitignore = true   # exclude gitignored files from scanned candidates
+follow_symlinks = false    # include symlinked files and directories
+
+[ignore]
+paths = ["dist/", "build/**"]
+
+[fix.pin_action]
+"actions/checkout@v4" = "5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f"
+```
+
+Use a different file with `--config <path>`. Explicit CLI flags override
+config values.
+
+## Path patterns
+
+Patterns match repository-relative paths with `/` separators (backslashes
+are normalized):
+
+- `path` and `path/` match the file or directory and everything below it
+- `path/**` matches everything below the prefix
+- `#` starts a comment unless it is inside a quoted string
+
+## Output defaults
+
+```toml
+fail_on = "warning"
+
+[output]
+format = "github"
+```
+
+## Inspect rule state
+
+```bash title="List rules"
+scour rules
+scour explain console-log
+scour --config path/to/scour.toml rules
+```
+
+Rule discovery output includes effective severity and triage values after
+config overrides, so nothing surprising reaches the scan.
