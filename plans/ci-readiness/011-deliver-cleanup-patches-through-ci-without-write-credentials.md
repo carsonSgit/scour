@@ -29,6 +29,7 @@ action.yml, scripts/run-action.sh, CI templates, tests/test_distribution.sh, REA
 Run `nimble test -y` for core changes and `bash tests/test_distribution.sh` for integration changes. Add the named regression cases. Record real pipeline/artifact evidence where required.
 
 Readiness item 011.
+
 ## Dependencies
 
 [#39](https://github.com/carsonSgit/scour/issues/39), [#40](https://github.com/carsonSgit/scour/issues/40), [#38](https://github.com/carsonSgit/scour/issues/38).
