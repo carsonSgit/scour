@@ -1,7 +1,7 @@
-const version* = "scour 0.4.6"
+const version* = "scour 0.4.5"
 
 const helpText* = """
-scour 0.4.6
+scour 0.4.5
 
 Usage:
   scour [options] [paths...]

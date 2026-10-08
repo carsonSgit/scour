@@ -1,6 +1,6 @@
 import algorithm, json, os, osproc, sequtils, strutils, tables
 
-import ../config, ../issues, ../rule_issue, ../scan_plan, ../source_text
+import ../config, ../files, ../issues, ../rule_issue, ../scan_plan, ../source_text
 
 const
   NodeLockfiles = [
@@ -479,7 +479,7 @@ proc scanPackageLockDrift(result: var seq[Issue]; plan: ScanPlan;
   var candidateSet = initTable[string, bool]()
   for file in files:
     fileSet[file] = true
-  for candidate in plan.candidates:
+  for candidate in plan.selectedFiles:
     candidateSet[candidate.normalizeRepoPath()] = true
 
   for candidate in plan.candidates:
@@ -511,7 +511,7 @@ proc scanDependencyLockDrift(result: var seq[Issue]; plan: ScanPlan;
   var candidateSet = initTable[string, bool]()
   for file in files:
     fileSet[file] = true
-  for candidate in plan.candidates:
+  for candidate in plan.selectedFiles:
     candidateSet[candidate.normalizeRepoPath()] = true
 
   for candidate in plan.candidates:
@@ -530,11 +530,15 @@ proc scanDependencyLockDrift(result: var seq[Issue]; plan: ScanPlan;
 
 proc scanCrossReference*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Issue] =
   let files = repositoryFiles(plan)
-  let inventory = commandInventory(plan.repo.root, files)
-  result.scanEnvDrift(plan, files, runtimeConfig)
+  let contextFiles =
+    if plan.repo.isGit: files
+    else: collectCandidates(plan.repo, scanAll, CliOptions()).files
+  let inventory = commandInventory(plan.repo.root, contextFiles)
+  result.scanEnvDrift(plan, contextFiles, runtimeConfig)
   result.scanReadmeCommandDrift(plan, inventory)
   result.scanCiCommandDrift(plan, inventory)
   result.scanUnpinnedGithubActions(plan)
-  result.scanPackageLockDrift(plan, files)
-  result.scanDependencyLockDrift(plan, files)
+  result.scanPackageLockDrift(plan, contextFiles)
+  result.scanDependencyLockDrift(plan, contextFiles)
+  result = result.filterIt(passesConfiguredFilters(plan.repo.root, it.file, runtimeConfig))
   result = result.applyRuleOverrides(runtimeConfig)

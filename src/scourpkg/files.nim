@@ -56,7 +56,7 @@ proc uniqueSorted(paths: seq[string]): seq[string] =
   result = paths.deduplicate()
   result.sort()
 
-proc passesConfiguredFilters(root, relative: string; runtimeConfig: RuntimeConfig): bool =
+proc passesConfiguredFilters*(root, relative: string; runtimeConfig: RuntimeConfig): bool =
   if relative.pathIgnored(runtimeConfig.ignorePaths):
     return false
   if runtimeConfig.maxFileSize > 0:
@@ -118,7 +118,7 @@ proc explicitFiles(root: string; paths: seq[string]): seq[string] =
       result.collectFilesRec(root, absolute)
   result = uniqueSorted(result)
 
-proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; runtimeConfig = defaultConfig()): tuple[baseRef: string, files: seq[string]] =
+proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; runtimeConfig = defaultConfig()): tuple[baseRef: string, files, selectedFiles: seq[string]] =
   case mode
   of scanStaged:
     result.files = filesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR")
@@ -132,17 +132,19 @@ proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; 
         if attempt.ok:
           result.baseRef = base
           result.files = attempt.files
-          return
+          break
 
-      let staged = tryFilesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR")
-      if staged.ok and staged.files.len > 0:
-        result.baseRef = "staged"
-        result.files = staged.files
-      else:
-        result.baseRef = "all"
-        result.files = allFiles(repo.root)
+      if result.baseRef.len == 0:
+        let staged = tryFilesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR")
+        if staged.ok and staged.files.len > 0:
+          result.baseRef = "staged"
+          result.files = staged.files
+        else:
+          result.baseRef = "all"
+          result.files = allFiles(repo.root)
   of scanAll:
     result.files = allFiles(repo.root)
   of scanExplicitPaths:
     result.files = explicitFiles(repo.root, options.explicitPaths)
+  result.selectedFiles = result.files
   result.files = result.files.applyConfiguredFilters(repo.root, runtimeConfig)

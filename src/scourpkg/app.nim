@@ -45,7 +45,8 @@ proc runScour*(): int =
       config: configDiscovery,
       sinceRef: options.sinceRef,
       baseRef: collected.baseRef,
-      candidates: collected.files
+      candidates: collected.files,
+      selectedFiles: collected.selectedFiles
     )
 
     let foundIssues = scanBranchHygiene(plan, runtimeConfig) & scanRepoHygiene(

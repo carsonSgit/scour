@@ -98,7 +98,8 @@ proc testPlan(root: string; candidates: seq[string]): ScanPlan =
   ScanPlan(
     mode: scanExplicitPaths,
     repo: RepoContext(root: root, isGit: false),
-    candidates: candidates
+    candidates: candidates,
+    selectedFiles: candidates
   )
 
 proc hasIssue(issues: seq[Issue]; ruleId: string): bool =
@@ -924,7 +925,8 @@ suite "cross-reference rules":
     let issues = scanCrossReference(ScanPlan(
       mode: scanChanged,
       repo: RepoContext(root: root, isGit: true),
-      candidates: @["app/package.json"]
+      candidates: @["app/package.json"],
+      selectedFiles: @["app/package.json"]
     ))
     check issues.hasIssue("package-lock-drift")
     let issue = issues.firstIssue("package-lock-drift")
@@ -949,14 +951,16 @@ suite "cross-reference rules":
     let withLockIssues = scanCrossReference(ScanPlan(
       mode: scanChanged,
       repo: RepoContext(root: root, isGit: true),
-      candidates: @["with-lock/package.json", "with-lock/package-lock.json"]
+      candidates: @["with-lock/package.json", "with-lock/package-lock.json"],
+      selectedFiles: @["with-lock/package.json", "with-lock/package-lock.json"]
     ))
     check withLockIssues.hasIssue("package-lock-drift") == false
 
     let noLockIssues = scanCrossReference(ScanPlan(
       mode: scanChanged,
       repo: RepoContext(root: root, isGit: true),
-      candidates: @["no-lock/package.json"]
+      candidates: @["no-lock/package.json"],
+      selectedFiles: @["no-lock/package.json"]
     ))
     check noLockIssues.hasIssue("package-lock-drift") == false
 
@@ -975,7 +979,8 @@ suite "cross-reference rules":
     let issues = scanCrossReference(ScanPlan(
       mode: scanChanged,
       repo: RepoContext(root: root, isGit: true),
-      candidates: @["rust/Cargo.toml", "python/pyproject.toml"]
+      candidates: @["rust/Cargo.toml", "python/pyproject.toml"],
+      selectedFiles: @["rust/Cargo.toml", "python/pyproject.toml"]
     ))
     check issues.len == 2
     check issues.hasIssue("dependency-lock-drift")
@@ -1126,6 +1131,135 @@ suite "scan planning and files":
     check collected.files == @["kept.ts"]
 
 suite "command behavior":
+  test "nonignored manifests preserve ignored and oversized selected lockfile context":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-filter-lock-context"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "package.json", "{}\n")
+    writeFile(root / "package-lock.json", "{}\n" & repeat(' ', 100))
+    writeFile(root / "Cargo.toml", "[package]\nname = \"app\"\n")
+    writeFile(root / "Cargo.lock", "# lock\n" & repeat(' ', 100))
+    check run("git add .", root).exitCode == 0
+    for gitRepo in [true, false]:
+      if not gitRepo:
+        removeDir(root / ".git")
+      writeFile(root / "scour.toml", "")
+      check parseJson(run(binary.quoteShell & " --all --format json", root).output)["issues"].len == 0
+      for policy in ["[ignore]\npaths = [\"package-lock.json\", \"Cargo.lock\"]\n",
+          "[scan]\nmax_file_size = 50\n"]:
+        writeFile(root / "scour.toml", policy)
+        var modes = @["--all", "package.json Cargo.toml package-lock.json Cargo.lock"]
+        if gitRepo:
+          modes.add("--staged")
+        for mode in modes:
+          let report = run(binary.quoteShell & " --format json " & mode, root)
+          check report.exitCode == 0
+          check parseJson(report.output)["issues"].len == 0
+        let report = run(binary.quoteShell & " --format json package.json Cargo.toml", root)
+        check report.exitCode == 0
+        let issues = parseJson(report.output)["issues"]
+        check issues.len == 2
+        check issues[0]["rule"].getStr() == "package-lock-drift"
+        check issues[1]["rule"].getStr() == "dependency-lock-drift"
+      if gitRepo:
+        check run("git commit -m manifests-and-lockfiles", root).exitCode == 0
+        let report = run(binary.quoteShell & " --format json --since HEAD~1", root)
+        check report.exitCode == 0
+        check parseJson(report.output)["issues"].len == 0
+
+  test "nonignored files validate against ignored and oversized context":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-filter-context"
+    initFixtureRepo("clean", root)
+    writeFile(root / "package.json",
+        "{\"scripts\":{\"test\":\"true\"}}" & repeat(' ', 200))
+    writeFile(root / "scour.toml",
+        "[scan]\nmax_file_size = 100\n[ignore]\npaths = [\"package.json\", \"package-lock.json\", \".env.example\", \".dockerignore\"]\n")
+    for gitRepo in [true, false]:
+      if not gitRepo:
+        removeDir(root / ".git")
+      for mode in ["--all", "app.ts README.md Dockerfile"]:
+        let report = run(binary.quoteShell & " --format json " & mode, root)
+        check report.exitCode == 0
+        check parseJson(report.output)["issues"].len == 0
+    writeFile(root / "app.ts", "const token = process.env.UNDOCUMENTED;\n")
+    let missing = run(binary.quoteShell & " --format json app.ts", root)
+    check missing.exitCode == 1
+    let issues = parseJson(missing.output)["issues"]
+    check issues.len == 1
+    check issues[0]["rule"].getStr() == "env-drift"
+
+  test "repository rules suppress ignored and oversized anchors across scan modes":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-filter-repository-rules"
+    initFixtureRepo("dirty", root)
+    writeFile(root / ".env", "TOKEN=value\n")
+    writeFile(root / ".github/workflows/ci.yml",
+        "jobs:\n  test:\n    steps:\n      - run: npm run missing\n      - uses: actions/checkout@v4\n")
+    createDir(root / "rust")
+    writeFile(root / "rust/Cargo.toml", "[package]\nname = \"app\"\n")
+    writeFile(root / "rust/Cargo.lock", "# lock\n")
+    createDir(root / "node")
+    writeFile(root / "node/package.json", "{}\n")
+    writeFile(root / "node/package-lock.json", "{}\n")
+    check run("git add .", root).exitCode == 0
+    check run("git commit -m repository-rules", root).exitCode == 0
+    writeFile(root / "kept.ts", "debugger;\n")
+    let baseline = parseJson(run(binary.quoteShell &
+        " --format json app.ts node/package.json rust/Cargo.toml", root).output)["issues"]
+    for rule in ["duplicate-lockfiles", "dockerignore-missing", "generated-files",
+        "tracked-env-file", "env-drift", "readme-command-drift", "ci-command-drift",
+        "unpinned-github-action", "package-lock-drift", "dependency-lock-drift"]:
+      check baseline.anyIt(it["rule"].getStr() == rule)
+    for policy in ["[ignore]\npaths = [\"app.ts\", \"package.json\", \"node/**\", \"rust/**\", \"Dockerfile\", \"dist/**\", \".env\", \"README.md\", \".github/**\"]\n",
+        "[scan]\nmax_file_size = 1\n"]:
+      writeFile(root / "scour.toml", policy)
+      if "max_file_size" in policy:
+        writeFile(root / "kept.ts", "")
+      check run("git add kept.ts", root).exitCode == 0
+      check run("git commit -m kept", root).exitCode == 0
+      writeFile(root / "kept.ts", (if "max_file_size" in policy: " " else: "debugger;\n\n"))
+      check run("git add kept.ts", root).exitCode == 0
+      for mode in ["--all", "--staged", "--since HEAD~1", "kept.ts"]:
+        let report = run(binary.quoteShell & " --format json " & mode, root)
+        check report.exitCode == (if "max_file_size" in policy: 0 else: 1)
+        let issues = parseJson(report.output)["issues"]
+        check issues.len == (if "max_file_size" in policy: 0 else: 1)
+        if issues.len == 1:
+          check issues[0]["file"].getStr() == "kept.ts"
+
+  test "automatic base scans and explicit staged changed full scans share filters":
+    let binary = fixtureBinary()
+    for base in ["origin/main", "main", "master"]:
+      let root = getTempDir() / ("scour-filter-modes-" & base.replace('/', '-'))
+      cleanDir(root)
+      initGitRepo(root)
+      check run("git branch -m issue-31", root).exitCode == 0
+      if base == "origin/main":
+        check run("git update-ref refs/remotes/origin/main HEAD", root).exitCode == 0
+      else:
+        check run("git branch " & base, root).exitCode == 0
+      writeFile(root / "ignored.ts", "debugger;\n")
+      writeFile(root / "large.ts", "debugger;\n" & repeat(' ', 80))
+      writeFile(root / "kept.ts", "debugger;\n")
+      writeFile(root / "scour.toml",
+          "[scan]\nmax_file_size = 40\n[ignore]\npaths = [\"ignored.ts\"]\n")
+      check run("git add .", root).exitCode == 0
+      for mode in ["--staged", "--all", "ignored.ts large.ts kept.ts"]:
+        let report = run(binary.quoteShell & " --format json " & mode, root)
+        check report.exitCode == 1
+        let issues = parseJson(report.output)["issues"]
+        check issues.len == 1
+        check issues[0]["file"].getStr() == "kept.ts"
+      check run("git commit -m candidates", root).exitCode == 0
+      for mode in ["", "--since " & base]:
+        let report = run(binary.quoteShell & " --format json " & mode, root)
+        check report.exitCode == 1
+        let issues = parseJson(report.output)["issues"]
+        check issues.len == 1
+        check issues[0]["file"].getStr() == "kept.ts"
+
   test "fixture repositories lock clean dirty formats and scan modes":
     let binary = fixtureBinary()
     let clean = getTempDir() / "scour-fixture-clean"
