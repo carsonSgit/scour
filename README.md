@@ -72,18 +72,23 @@ users should download the ZIP archive from GitHub Releases and place
 
 ## GitHub Action
 
-Use Scour in a Linux GitHub Actions job:
+Use Scour in a Linux GitHub Actions job. Pin both the Action reference and the
+binary version so repeated runs resolve identical archives:
 
 ```yaml
-- uses: carsonSgit/scour@v1
+- uses: carsonSgit/scour@v0.4.5
   with:
+    version: v0.4.5
     fail-on: warning
     triage: "true"
 ```
 
 Inputs are `since`, `staged`, `all`, `format`, `fail-on`, `config`, `version`,
-`exit-zero`, and `triage`. Outputs are `total`, `errors`, `warnings`, `info`,
-`blockers`, `fix-now`, `review`, `cleanup`, and `json`.
+`exit-zero`, `triage`, `fix` (none/preview/apply), and `patch-name`. Outputs are
+`total`, `errors`, `warnings`, `info`, `blockers`, `fix-now`, `review`,
+`cleanup`, `json`, `patch-path`, `before-path`, `after-path`, `fixed`,
+`remaining`, and `unfixable`. Linux runners only until other runners are tested.
+The action never touches Git refs; fixes ship as downloaded artifacts.
 
 ## Releases
 
