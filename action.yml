@@ -35,6 +35,14 @@ inputs:
     description: Append triage output to the step summary
     required: false
     default: "false"
+  fix:
+    description: Fix mode - none, preview (write scour-fix.patch), or apply
+    required: false
+    default: "none"
+  patch-name:
+    description: Name for the uploaded fix patch artifact
+    required: false
+    default: scour-fix
 outputs:
   total:
     description: Total findings
@@ -63,6 +71,24 @@ outputs:
   json:
     description: Full Scour JSON report
     value: ${{ steps.scour.outputs.json }}
+  patch-path:
+    description: Path of the generated fix patch (preview or apply)
+    value: ${{ steps.scour.outputs.patch-path }}
+  before-path:
+    description: Path of the pre-fix JSON report
+    value: ${{ steps.scour.outputs.before-path }}
+  after-path:
+    description: Path of the post-fix JSON report (apply mode)
+    value: ${{ steps.scour.outputs.after-path }}
+  fixed:
+    description: Findings fixed by apply
+    value: ${{ steps.scour.outputs.fixed }}
+  remaining:
+    description: Fixable findings remaining after apply
+    value: ${{ steps.scour.outputs.remaining }}
+  unfixable:
+    description: Findings that require manual judgment
+    value: ${{ steps.scour.outputs.unfixable }}
 runs:
   using: composite
   steps:
@@ -79,4 +105,19 @@ runs:
         SCOUR_INPUT_VERSION: ${{ inputs.version }}
         SCOUR_INPUT_EXIT_ZERO: ${{ inputs.exit-zero }}
         SCOUR_INPUT_TRIAGE: ${{ inputs.triage }}
+        SCOUR_INPUT_FIX: ${{ inputs.fix }}
+        SCOUR_INPUT_PATCH_NAME: ${{ inputs.patch-name }}
       run: "$GITHUB_ACTION_PATH/scripts/run-action.sh"
+    - name: Upload scour reports
+      if: steps.scour.outputs.before-path != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.patch-name }}-reports
+        path: "${{ steps.scour.outputs.before-path }}\n${{ steps.scour.outputs.patch-path }}"
+        if-no-files-found: warn
+    - name: Upload post-fix report
+      if: steps.scour.outputs.after-path != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.patch-name }}-after
+        path: ${{ steps.scour.outputs.after-path }}
