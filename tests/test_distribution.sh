@@ -200,7 +200,7 @@ script="$(grep -E '^     *- name: Package Unix archive' "$root/.github/workflows
 [[ "$script" -eq 1 ]] || fail "unix packaging step missing"
 grep -qE 'cp scour README.md LICENSE package/' "$root/.github/workflows/release.yml" \
   || fail "unix packaging is missing LICENSE"
-grep -qE 'Copy-Item scour README.md LICENSE package/' "$root/.github/workflows/release.yml" \
+grep -qE 'Copy-Item LICENSE -Destination package' "$root/.github/workflows/release.yml" \
   || fail "windows packaging is missing LICENSE"
 grep -q 'verify/LICENSE' "$root/.github/workflows/release.yml" \
   || fail "publish validation does not assert LICENSE presence"
