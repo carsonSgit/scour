@@ -13,7 +13,9 @@ type
     formatText = "text",
     formatJson = "json",
     formatGitHub = "github",
-    formatDoctor = "doctor"
+    formatDoctor = "doctor",
+    formatCodequality = "codequality",
+    formatSarif = "sarif"
 
   ColorMode* = enum
     colorAuto = "auto",

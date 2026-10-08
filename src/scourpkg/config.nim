@@ -455,8 +455,10 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
         of "text": result.outputFormat = formatText
         of "json": result.outputFormat = formatJson
         of "github": result.outputFormat = formatGitHub
+        of "codequality": result.outputFormat = formatCodequality
+        of "sarif": result.outputFormat = formatSarif
         else: fatal("invalid config value in " & discovery.path & ":" &
-            $lineNumber & " for " & qualified & ": expected text, json, or github")
+            $lineNumber & " for " & qualified & ": expected text, json, github, codequality, sarif, or doctor")
       else:
         fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
             ": " & qualified)

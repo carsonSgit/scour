@@ -47,6 +47,8 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
       of "json": options.outputFormat = formatJson
       of "github": options.outputFormat = formatGitHub
       of "doctor": options.outputFormat = formatDoctor
+      of "codequality": options.outputFormat = formatCodequality
+      of "sarif": options.outputFormat = formatSarif
       else: fatal("invalid --format value: " & args[index])
     of "--fail-on":
       inc index
