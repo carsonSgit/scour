@@ -1,6 +1,6 @@
 import os, strutils
 
-import ../config, ../issues, ../rule_issue, ../scan_plan
+import ../config, ../files, ../issues, ../rule_issue, ../scan_plan
 
 proc isCredentialChar(ch: char): bool =
   ch.isAlphaNumeric() or ch in {'_', '-', '.'}
@@ -70,15 +70,14 @@ proc credentialSignature(line: string): tuple[index: int; kind: string] =
 
 proc scanHardcodedSecrets(result: var seq[Issue]; plan: ScanPlan) =
   for candidate in plan.candidates:
-    let path = plan.repo.root / candidate
-    if not fileExists(path):
+    if not snapshotPresence(plan.repo.root, candidate, plan.mode):
       if plan.stats != nil:
         inc(plan.stats.missing)
       continue
     var lineNumber = 0
     var source = ""
     try:
-      source = readFile(path)
+      source = readSnapshotContent(plan.repo.root, candidate, plan.mode, plan.stats)
     except IOError, OSError:
       if plan.stats != nil:
         inc(plan.stats.unreadable)
