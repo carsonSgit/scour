@@ -1,8 +1,8 @@
 import std/json
 
-import issues
+import issues, scan_plan
 
-proc renderJsonIssues*(issues: openArray[Issue]): string =
+proc renderJsonIssues*(issues: openArray[Issue]; plan: ScanPlan): string =
   let summary = summarizeIssues(issues)
   let score = scoreIssues(issues)
   var issueNodes = newJArray()
@@ -18,6 +18,11 @@ proc renderJsonIssues*(issues: openArray[Issue]): string =
       "message": issue.message,
       "suggestion": issue.suggestion
     })
+  let baseRef =
+    case plan.mode
+    of scanChanged: plan.sinceRef
+    of scanStaged: "staged"
+    else: ""
   $(%*{
     "summary": {
       "errors": summary.bySeverity.errors,
@@ -33,6 +38,12 @@ proc renderJsonIssues*(issues: openArray[Issue]): string =
         "ignored": summary.byTriage.ignored
     }
   },
+    "scan": {
+      "mode": modeName(plan.mode),
+      "base": baseRef,
+      "head": "HEAD",
+      "scanned_files": plan.candidates.len
+    },
     "score": {
       "current": score.current,
       "max": score.max,

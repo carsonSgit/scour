@@ -55,7 +55,7 @@ proc runScour*(): int =
     if options.command == commandTriage:
       stdout.write(renderTriage(foundIssues))
     else:
-      stdout.write(renderIssues(foundIssues, effectiveOptions))
+      stdout.write(renderIssues(foundIssues, effectiveOptions, plan))
     if not effectiveOptions.exitZero and foundIssues.hasFailingIssues(
         effectiveOptions.failOn):
       1

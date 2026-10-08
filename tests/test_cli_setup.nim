@@ -284,7 +284,7 @@ suite "issue summaries":
 
 suite "structured output":
   test "renders stable JSON for clean scans and full issues":
-    let clean = parseJson(renderJsonIssues(@[]))
+    let clean = parseJson(renderJsonIssues(@[], testPlan("", @[])))
     check clean["summary"]["total"].getInt() == 0
     check clean["summary"]["triage"]["ignored"].getInt() == 0
     check clean["score"]["current"].getInt() == 100
@@ -294,7 +294,7 @@ suite "structured output":
       ruleId: "config/missing", severity: severityWarning,
       triage: triageReview, category: "config", file: "a.nim",
       line: 2, column: 3, message: "Missing.", suggestion: "Add it."
-    )]))
+    )], testPlan("", @[])))
     check rendered["score"]["current"].getInt() == 96
     check rendered["score"]["deductions"]["warnings"].getInt() == 4
     check rendered["issues"][0]["rule"].getStr() == "config/missing"
@@ -1027,7 +1027,7 @@ suite "security rules":
 
 suite "scan planning and files":
   test "selects default modes":
-    check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true)) == scanChanged
+    check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true)) == scanAll
     check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: false)) == scanAll
 
   test "expands explicit files and directories":
@@ -1513,3 +1513,107 @@ suite "command behavior":
     let issues = parseJson(report.output)["issues"]
     for name in names:
       check issues.toSeq().countIt(it["file"].getStr() == name) == 1
+
+  test "default scan is the full tracked checkout for default-branch pushes":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-default-full"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "app.ts", "const value = process.env.UNDOCUMENTED;\n")
+    let report = run(binary.quoteShell & " --format json", root)
+    check report.exitCode == 1
+    let rendered = parseJson(report.output)
+    check rendered["scan"]["mode"].getStr() == "all"
+    check rendered["scan"]["base"].getStr() == ""
+    check rendered["scan"]["scanned_files"].getInt() == 2
+    check rendered["issues"].toSeq().countIt(it["rule"].getStr() == "env-drift") == 1
+
+  test "explicit comparisons use merge-base semantics across alternate branches":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-merge-base"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "kept.txt", "stable\n")
+    check run("git add kept.txt", root).exitCode == 0
+    check run("git commit -m base", root).exitCode == 0
+    check run("git branch release", root).exitCode == 0
+    writeFile(root / "main-side.ts", "const value = process.env.UNDOCUMENTED;\n")
+    writeFile(root / "kept.txt", "changed on main\n")
+    check run("git add -A", root).exitCode == 0
+    check run("git commit -m main-side", root).exitCode == 0
+    let report = run(binary.quoteShell & " --format json --since release", root)
+    check report.exitCode == 1
+    let rendered = parseJson(report.output)
+    check rendered["scan"]["mode"].getStr() == "changed"
+    check rendered["scan"]["base"].getStr() == "release"
+    check rendered["scan"]["head"].getStr() == "HEAD"
+    let scanned = rendered["scan"]["scanned_files"].getInt()
+    check scanned == 2
+    check rendered["issues"].toSeq().countIt(
+        it["file"].getStr() == "main-side.ts") == 1
+
+  test "missing comparison refs fail with actionable errors instead of scope changes":
+    let root = getTempDir() / "scour-missing-ref"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "app.ts", "const value = process.env.UNDOCUMENTED;\n")
+    let context = RepoContext(root: root, isGit: true)
+    expectFatal:
+      discard collectCandidates(context, scanChanged, CliOptions())
+
+    let binary = fixtureBinary()
+    let report = run(binary.quoteShell & " --since does-not-exist", root)
+    check report.exitCode == 2
+    check "merge-base semantics" in report.output
+
+  test "empty diffs scan zero files and succeed":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-empty-diff"
+    cleanDir(root)
+    initGitRepo(root)
+    let report = run(binary.quoteShell & " --format json --since HEAD", root)
+    check report.exitCode == 0
+    let rendered = parseJson(report.output)
+    check rendered["scan"]["scanned_files"].getInt() == 0
+    check rendered["issues"].len == 0
+
+  test "renames scan targets once and deletions scan nothing":
+    let root = getTempDir() / "scour-rename-filter"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "old.ts", "const value = 1;\n")
+    check run("git add old.ts", root).exitCode == 0
+    check run("git commit -m original", root).exitCode == 0
+    check run("git mv old.ts \"moved target.ts\"", root).exitCode == 0
+    check run("git rm --cached tracked.txt", root).exitCode == 0
+    let context = RepoContext(root: root, isGit: true)
+    let staged = collectCandidates(context, scanStaged, CliOptions())
+    check staged.files == @["moved target.ts"]
+    check staged.baseRef == ""
+    check "old.ts" notin staged.files
+    check "tracked.txt" notin staged.files
+
+  test "detached heads and shallow clones keep deterministic scope":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-detached-shallow"
+    cleanDir(root)
+    initGitRepo(root)
+    check run("git checkout --detach", root).exitCode == 0
+    writeFile(root / "app.ts", "const value = process.env.UNDOCUMENTED;\n")
+    let report = run(binary.quoteShell & " --format json", root)
+    check report.exitCode == 1
+    let rendered = parseJson(report.output)
+    check rendered["scan"]["mode"].getStr() == "all"
+    check rendered["issues"].toSeq().countIt(
+        it["file"].getStr() == "app.ts") == 1
+
+    let shallow = getTempDir() / "scour-shallow"
+    cleanDir(shallow)
+    check run("git clone -q --depth 1 --no-local " & root.quoteShell & " " &
+        shallow.quoteShell).exitCode == 0
+    let shallowReport = run(binary.quoteShell & " --format json --since HEAD", shallow)
+    check shallowReport.exitCode == 0
+    check parseJson(shallowReport.output)["scan"]["scanned_files"].getInt() == 0
+    let missing = run(binary.quoteShell & " --since c3fa8041", shallow)
+    check missing.exitCode == 2
+    check "merge-base semantics" in missing.output

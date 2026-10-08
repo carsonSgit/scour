@@ -75,21 +75,13 @@ proc applyConfiguredFilters(files: seq[string]; root: string; runtimeConfig: Run
 proc filesFromGitDiff(root: string; args: string): seq[string] =
   let git = runGit(root, args)
   if git.exitCode != 0:
-    fatal("git diff failed: " & git.output.strip())
+    fatal("git diff failed for '" & args & "' using merge-base semantics; " &
+        "supply a reachable --since ref or fetch the comparison history " &
+        "(a shallow or forked clone may be missing it): " & git.output.strip())
   for line in git.output.split('\0'):
     if line.len > 0:
       result.addCandidate(root, line)
   result = uniqueSorted(result)
-
-proc tryFilesFromGitDiff(root: string; args: string): tuple[ok: bool, files: seq[string]] =
-  let git = runGit(root, args)
-  if git.exitCode != 0:
-    return (false, @[])
-  for line in git.output.split('\0'):
-    if line.len > 0:
-      result.files.addCandidate(root, line)
-  result.ok = true
-  result.files = uniqueSorted(result.files)
 
 proc collectFilesRec(result: var seq[string]; root, directory: string) =
   if isInsideIgnoredDir(directory):
@@ -123,25 +115,10 @@ proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; 
   of scanStaged:
     result.files = filesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR -z")
   of scanChanged:
-    if options.sinceRef.len > 0:
-      result.baseRef = options.sinceRef
-      result.files = filesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR -z " & quoteShell(options.sinceRef & "...HEAD"))
-    else:
-      for base in ["origin/main", "main", "master"]:
-        let attempt = tryFilesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR -z " & quoteShell(base & "...HEAD"))
-        if attempt.ok:
-          result.baseRef = base
-          result.files = attempt.files
-          break
-
-      if result.baseRef.len == 0:
-        let staged = tryFilesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR -z")
-        if staged.ok and staged.files.len > 0:
-          result.baseRef = "staged"
-          result.files = staged.files
-        else:
-          result.baseRef = "all"
-          result.files = allFiles(repo.root)
+    if options.sinceRef.len == 0:
+      fatal("changed scan requires --since <ref>; use --all for the full tracked checkout")
+    result.baseRef = options.sinceRef
+    result.files = filesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR -z " & quoteShell(options.sinceRef & "...HEAD"))
   of scanAll:
     result.files = allFiles(repo.root)
   of scanExplicitPaths:

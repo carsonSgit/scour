@@ -70,6 +70,4 @@ proc resolveScanMode*(options: CliOptions; repo: RepoContext): ScanMode =
     return scanChanged
   if options.all:
     return scanAll
-  if repo.isGit:
-    return scanChanged
   scanAll
