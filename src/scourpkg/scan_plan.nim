@@ -37,6 +37,8 @@ type
     failOn*: FailureThreshold
     failOnExplicit*: bool
     exitZero*: bool
+    fixPreview*: bool
+    fixApply*: bool
     staged*: bool
     all*: bool
     sinceRef*: string

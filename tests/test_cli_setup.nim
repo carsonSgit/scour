@@ -3,6 +3,7 @@ when defined(posix):
   import posix
 
 import ../src/scourpkg/cli
+import ../src/scourpkg/fixes
 import ../src/scourpkg/config
 import ../src/scourpkg/doctor_output
 import ../src/scourpkg/errors
@@ -2002,3 +2003,87 @@ suite "command behavior":
     let report = run(binary.quoteShell & " --all --format json", root)
     check parseJson(report.output)["issues"].toSeq().countIt(
         it["rule"].getStr() == "ci-command-drift") == 0
+
+  test "fix planning writes a patch without touching files":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-fix-preview"
+    cleanDir(root)
+    createDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", "const start = 1;\nconsole.log(\"debug\");\nconst end = 2;\ndebugger;\n")
+    let before = readFile(root / "app.ts")
+    let report = run(binary.quoteShell & " --all --fix --format json", root)
+    check report.exitCode == 0
+    check "Planned 2 fix findings across 1 file" in report.output
+    check readFile(root / "app.ts") == before
+    check fileExists(root / "scour-fix.patch")
+    let patch = readFile(root / "scour-fix.patch")
+    check "-console.log(\"debug\");" in patch
+    check "-debugger;" in patch
+    check "+++ b/app.ts" in patch
+
+  test "fix application is atomic, preserves modes, and is idempotent":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-fix-apply"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "app.ts", "const start = 1;\nconsole.log(\"debug\");\nconst end = 2;\n")
+    writeFile(root / "other.ts", "debugger;\nlet x = 3;\n")
+    check run("chmod 600 other.ts", root).exitCode == 0
+    let first = run(binary.quoteShell & " --all --fix-apply --format json", root)
+    check first.exitCode == 0
+    check readFile(root / "app.ts") == "const start = 1;\nconst end = 2;\n"
+    check readFile(root / "other.ts") == "let x = 3;\n"
+    when defined(posix):
+      let permissions = getFilePermissions(root / "other.ts")
+      check permissions.contains(fpUserWrite)
+      check not permissions.contains(fpGroupWrite)
+
+    let second = run(binary.quoteShell & " --all --fix-apply --format json", root)
+    check second.exitCode == 0
+    check readFile(root / "app.ts") == "const start = 1;\nconst end = 2;\n"
+    check readFile(root / "other.ts") == "let x = 3;\n"
+
+  test "stale content stops apply with a controlled refusal":
+    let root = getTempDir() / "scour-fix-stale"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "fixed.ts", "console.log(\"debug\");\n")
+    let planned = planFixes(@[Issue(ruleId: "console-log", severity: severityWarning,
+        triage: triageReview, category: "hygiene", file: "fixed.ts",
+        line: 1, message: "console.log call found.", suggestion: "Remove.")],
+        root)
+    check planned.len == 1
+    check planned[0].contentSha.len == 40
+    writeFile(root / "fixed.ts", "console.log(\"debug\");\nconst moved = 1;\n")
+    let applied = applyFixPlan(planned, root)
+    check applied.stale.len == 1
+    check applied.applied.len == 0
+    check readFile(root / "fixed.ts").contains("console.log")
+
+  test "post-fix exit follows remaining and unfixable findings":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-fix-post-exit"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "mixed.ts", "<<<<<<< HEAD\ndebugger;\n>>>>>>> branch\n")
+    let report = run(binary.quoteShell & " --all --fix-apply --format json", root)
+    check report.exitCode == 1
+    check "remaining: " in report.output
+    check "unfixable: " in report.output
+    check not readFile(root / "mixed.ts").contains("debugger")
+    check readFile(root / "mixed.ts").contains("<<<<<<< HEAD")
+
+  test "unwritable targets stop apply with exit code 2":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-fix-unwritable"
+    cleanDir(root)
+    createDir(root)
+    writeFile(root / "locked.ts", "console.log(\"debug\");\n")
+    when defined(posix):
+      check run("chmod 500 .", root).exitCode == 0
+    let report = run(binary.quoteShell & " --all --fix-apply --format json", root)
+    when defined(posix):
+      check report.exitCode == 2
+      check "Fatal" in report.output
+      check run("chmod 700 .", root).exitCode == 0

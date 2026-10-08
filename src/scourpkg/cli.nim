@@ -60,6 +60,10 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
       else: fatal("invalid --fail-on value: " & args[index])
     of "--exit-zero":
       options.exitZero = true
+    of "--fix":
+      options.fixPreview = true
+    of "--fix-apply":
+      options.fixApply = true
     of "--color":
       inc index
       if index >= args.len:
@@ -101,6 +105,9 @@ proc parseCliArgs*(args: seq[string]): CliOptions =
 
   if modeCount > 1:
     fatal("--staged, --since, --all, and explicit paths cannot be combined")
+
+  if options.fixPreview and options.fixApply:
+    fatal("--fix and --fix-apply cannot be combined")
 
   if options.command == commandExplain:
     if options.explainRuleId.len == 0:
