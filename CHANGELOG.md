@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.4.8] - 2026-10-08
+
+### Bug Fixes
+- YAML syntax in release and action workflows
+
+### Other
+- Align version assertions with the v0.4.7 release
+
 ## [0.4.7] - 2026-10-08
 
 ### Other
@@ -196,6 +204,28 @@ This project adheres to [Semantic Versioning](https://semver.org).
 - Apply scan filters consistently for Scour #31
 - Preserve filtered lockfile context for Scour #31
 - Use valid workflow fixture for Scour #31
+- Preserve git filenames with NUL-delimited enumeration (#33)
+- Deterministic revision selection for CI (#32)
+- Validate TOML values and implement accepted scan settings (#34)
+- Bound filesystem reads and expose incomplete scans (#35)
+- Read staged scans from the git index snapshot (#36)
+- Version machine reports and include scan coverage (#38)
+- Scope drift checks to workspaces and parse CI command context (#37)
+- Add opt-in fix planning and patch application (#39)
+- Implement the first bounded cleanup rules (#40)
+- Deliver cleanup patches through CI without write credentials (#41)
+- Make the GitHub Action reproducible and preserve failures (#42)
+- Gate releases on actual artifact validation (#43)
+- Make release publication retryable and document its trigger (#48)
+- Export GitLab Code Quality and SARIF reports (#46)
+- Include the declared MIT license in packages (#49)
+- Validate rule precision across supported languages (#50)
+- Add baseline adoption and scoped finding suppressions (#47)
+- Ship GitLab and generic CI jobs with install prerequisite guards (#45 partial)
+- Publish and test the user onboarding contract (#51 partial)
+- Establish supported runtimes and portable CI distribution (#44 partial)
+- Add non-root container image for portable CI (#44 follow-up)
+- Update roadmap status: 21 issues implemented and PR'd
 - Add issue model and text output
 - Load rule settings
 - Add branch hygiene checks
