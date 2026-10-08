@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/carsonSgit/scour/report-schema-v1.json",
+  "title": "Scour machine report v1",
+  "type": "object",
+  "required": ["report_version", "tool", "summary", "scan", "score", "issues"],
+  "properties": {
+    "report_version": { "const": 1 },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version", "schema"],
+      "properties": {
+        "name": { "const": "scour" },
+        "version": { "type": "string" },
+        "schema": { "type": "string" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["errors", "warnings", "info", "total", "files", "triage"],
+      "properties": {
+        "errors": { "type": "integer" },
+        "warnings": { "type": "integer" },
+        "info": { "type": "integer" },
+        "total": { "type": "integer" },
+        "files": { "type": "integer" },
+        "triage": {
+          "type": "object",
+          "required": ["blockers", "fix_now", "review", "cleanup", "ignored"],
+          "properties": {
+            "blockers": { "type": "integer" },
+            "fix_now": { "type": "integer" },
+            "review": { "type": "integer" },
+            "cleanup": { "type": "integer" },
+            "ignored": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "scan": {
+      "type": "object",
+      "required": ["mode", "base", "head", "complete", "scanned_files", "skipped"],
+      "properties": {
+        "mode": { "enum": ["changed", "staged", "all", "explicit-paths"] },
+        "base": { "type": "string" },
+        "head": { "type": "string" },
+        "complete": { "type": "boolean" },
+        "scanned_files": { "type": "integer" },
+        "skipped": {
+          "type": "object",
+          "required": ["binary", "oversized", "unreadable", "missing"],
+          "properties": {
+            "binary": { "type": "integer" },
+            "oversized": { "type": "integer" },
+            "unreadable": { "type": "integer" },
+            "missing": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "score": { "type": "object" },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "rule", "severity", "triage_level", "category", "file", "line", "column", "message", "suggestion", "fixable"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[0-9a-f]{40}(-[0-9]+)?$" },
+          "rule": { "type": "string" },
+          "severity": { "enum": ["error", "warning", "info"] },
+          "triage_level": { "enum": ["blocker", "fixNow", "review", "cleanup", "ignored"] },
+          "category": { "type": "string" },
+          "file": { "type": "string" },
+          "line": { "type": "integer" },
+          "column": { "type": "integer" },
+          "message": { "type": "string" },
+          "suggestion": { "type": "string" },
+          "fixable": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

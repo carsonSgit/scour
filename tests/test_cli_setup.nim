@@ -1,4 +1,4 @@
-import json, os, osproc, sequtils, strutils, times, unittest
+import json, os, osproc, sequtils, strutils, tables, times, unittest
 when defined(posix):
   import posix
 
@@ -287,6 +287,9 @@ suite "issue summaries":
 suite "structured output":
   test "renders stable JSON for clean scans and full issues":
     let clean = parseJson(renderJsonIssues(@[], testPlan("", @[])))
+    check clean["report_version"].getInt() == 1
+    check clean["tool"]["name"].getStr() == "scour"
+    check clean["tool"]["version"].getStr() == "0.4.5"
     check clean["summary"]["total"].getInt() == 0
     check clean["summary"]["triage"]["ignored"].getInt() == 0
     check clean["score"]["current"].getInt() == 100
@@ -297,12 +300,31 @@ suite "structured output":
       triage: triageReview, category: "config", file: "a.nim",
       line: 2, column: 3, message: "Missing.", suggestion: "Add it."
     )], testPlan("", @[])))
+    check rendered["scan"]["complete"].getBool() == true
+    check rendered["issues"][0]["id"].getStr().len == 40
+    check rendered["issues"][0]["fixable"].getBool() == false
     check rendered["score"]["current"].getInt() == 96
     check rendered["score"]["deductions"]["warnings"].getInt() == 4
     check rendered["issues"][0]["rule"].getStr() == "config/missing"
     check rendered["issues"][0]["severity"].getStr() == "warning"
     check rendered["issues"][0]["triage_level"].getStr() == "review"
     check rendered["issues"][0]["suggestion"].getStr() == "Add it."
+
+  test "finding fingerprints survive line shifts and split duplicates":
+    var seenBase = initTable[string, int]()
+    let first = Issue(
+      ruleId: "console-log", severity: severityWarning,
+      triage: triageReview, category: "hygiene", file: "a.ts",
+      line: 5, message: "console.log call found.", suggestion: "Remove.")
+    let firstId = stableFindingId(first, seenBase)
+    check firstId.len == 40
+    var shifted = first
+    shifted.line = 25
+    let shiftedId = stableFindingId(shifted, seenBase)
+    check shiftedId.split("-")[0] == firstId
+    let duplicateId = stableFindingId(first, seenBase)
+    check duplicateId != firstId
+    check duplicateId.startsWith(firstId & "-")
 
   test "renders GitHub annotations with escaping and optional locations":
     check renderGitHubIssues(@[]) == ""
@@ -1816,6 +1838,51 @@ suite "command behavior":
     check report.exitCode == 1
     check parseJson(report.output)["summary"]["total"].getInt() == 0
     check parseJson(report.output)["scan"]["skipped"]["unreadable"].getInt() == 1
+    check parseJson(report.output)["scan"]["complete"].getBool() == false
+
+  test "machine report validates against the published schema":
+    let schema = parseJson(readFile("report-schema-v1.json"))
+    check schema["properties"]["report_version"]["const"].getInt() == 1
+    check schema["type"].getStr() == "object"
+    for key in schema["required"]:
+      check key.getStr() in ["report_version", "tool", "summary", "scan",
+          "score", "issues"]
+
+    let plan = testPlan("", @[])
+    let cleanReport = parseJson(renderJsonIssues(@[], plan))
+    proc schemaValidate(node: JsonNode; schema: JsonNode): bool =
+      case schema{"type"}.getStr()
+      of "object":
+        if schema.hasKey("required"):
+          for key in schema["required"]:
+            if not node.hasKey(key.getStr()):
+              return false
+        if schema.hasKey("properties"):
+          for key, spec in schema["properties"]:
+            if node.hasKey(key):
+              if not schemaValidate(node[key], spec):
+                return false
+        true
+      of "array":
+        for item in node:
+          if not schemaValidate(item, schema["items"]):
+            return false
+        true
+      of "string": node.kind == JString
+      of "integer": node.kind == JInt
+      of "boolean": node.kind == JBool
+      else: true
+
+    check schemaValidate(cleanReport, schema)
+    let issueReport = parseJson(renderJsonIssues(@[Issue(
+      ruleId: "config/missing", severity: severityWarning,
+      triage: triageReview, category: "config", file: "a.nim",
+      line: 2, column: 3, message: "Missing.", suggestion: "Add it."
+    )], plan))
+    check schemaValidate(issueReport, schema)
+    let fixtures = @["tests/snapshots/dirty-json.txt"]
+    for fixture in fixtures:
+      check schemaValidate(parseJson(readFile(fixture)), schema)
 
   test "large trees stay inside recorded runtime and memory limits":
     let root = getTempDir() / "scour-large-tree"
