@@ -210,7 +210,7 @@ jobs:
           version_out=$(verify/scour --version); echo "$version_out"
           [[ "$version_out" == "$expected_version" ]] || { echo "installed binary version mismatch: $version_out" >&2; exit 1; }
           verify/scour --help >/dev/null
-          verify/scour --scan ./tests --format json >/tmp/scour-check.json
+          verify/scour --all --format json >/tmp/scour-check.json
           test -s /tmp/scour-check.json
       - name: Package Unix archive
         if: runner.os != 'Windows'
