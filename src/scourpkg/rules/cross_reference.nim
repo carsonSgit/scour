@@ -54,17 +54,21 @@ proc repositoryFiles(plan: ScanPlan): seq[string] =
   result = result.deduplicate()
   result.sort()
 
-proc safeRead(root, file: string; stats: ScanStats = nil): string =
-  let path = root / file
-  if fileExists(path):
+proc safeRead(root, file: string; mode = scanAll; stats: ScanStats = nil): string =
+  if mode != scanStaged:
+    let path = root / file
+    if not fileExists(path):
+      return ""
     try:
-      readFile(path)
+      result = readFile(path)
     except IOError, OSError:
       if stats != nil:
         inc(stats.unreadable)
-      ""
+      result = ""
   else:
-    ""
+    let git = runGit(root, "show :\"" & file & "\"")
+    if git.exitCode == 0:
+      result = git.output
 
 proc lineColumn(text: string; index: int): tuple[line: int; column: int] =
   result = (line: 1, column: 1)
@@ -202,7 +206,7 @@ proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[
   let documented = loadEnvNames(plan.repo.root, files,
       runtimeConfig.envExampleFiles)
   for candidate in plan.candidates:
-    let text = safeRead(plan.repo.root, candidate, plan.stats)
+    let text = safeRead(plan.repo.root, candidate, plan.mode, plan.stats)
     if text.len == 0:
       continue
     let code = text.maskedSourceText(candidate)
@@ -379,7 +383,7 @@ proc scanReadmeCommandDrift(result: var seq[Issue]; plan: ScanPlan;
     var lineNumber = 0
     var inFence = false
     var shellFence = false
-    for line in safeRead(plan.repo.root, file, plan.stats).splitLines():
+    for line in safeRead(plan.repo.root, file, plan.mode, plan.stats).splitLines():
       inc lineNumber
       let trimmed = line.strip()
       if trimmed.startsWith("```"):
@@ -425,7 +429,7 @@ proc scanCiCommandDrift(result: var seq[Issue]; plan: ScanPlan;
     if not (file.startsWith(".github/workflows/") and (file.endsWith(".yml") or
         file.endsWith(".yaml"))):
       continue
-    for command in workflowRunCommands(safeRead(plan.repo.root, file, plan.stats)):
+    for command in workflowRunCommands(safeRead(plan.repo.root, file, plan.mode, plan.stats)):
       if command.command.isCommandCandidate() and not command.command.isValid(inventory):
         result.add(commandError("ci-command-drift", file,
             command.line, command.column, command.command))
@@ -445,7 +449,7 @@ proc scanUnpinnedGithubActions(result: var seq[Issue]; plan: ScanPlan) =
         (file.endsWith(".yml") or file.endsWith(".yaml"))):
       continue
     var lineNumber = 0
-    for line in safeRead(plan.repo.root, file, plan.stats).splitLines():
+    for line in safeRead(plan.repo.root, file, plan.mode, plan.stats).splitLines():
       inc lineNumber
       var text = line.strip()
       if text.startsWith("- "):

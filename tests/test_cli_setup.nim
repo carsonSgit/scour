@@ -1727,6 +1727,61 @@ suite "command behavior":
     check withFollow.files.count("followed.ts") == 1
     check withFollow.files.len == withoutFollow.files.len + 1
 
+  test "staged scans read the selected index snapshot":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-staged-snapshot"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "app.ts", "const clean = 1;\n")
+    check run("git add app.ts", root).exitCode == 0
+    check run("git commit -m clean", root).exitCode == 0
+
+    check run("git mv app.ts moved.ts", root).exitCode == 0
+    writeFile(root / "moved.ts", "const value = process.env.STAGED_ENV;\n")
+    check run("git add moved.ts", root).exitCode == 0
+
+    let candidates = collectCandidates(RepoContext(root: root, isGit: true),
+        scanStaged, CliOptions())
+    check candidates.files == @["moved.ts"]
+
+    let dirty = run(binary.quoteShell & " --staged --format json", root)
+    check parseJson(dirty.output)["issues"].toSeq().countIt(
+        it["rule"].getStr() == "env-drift") == 1
+
+  test "staged scans ignore unstaged worktree edits for the same finding":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-staged-worktree-split"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "app.ts", "const first = 1;\n")
+    check run("git add app.ts", root).exitCode == 0
+    check run("git commit -m clean", root).exitCode == 0
+
+    writeFile(root / "app.ts", "const second = 2;\n")
+    check run("git add app.ts", root).exitCode == 0
+    writeFile(root / "app.ts",
+        "const second = 2;\nconst value = process.env.UNDOCUMENTED;\n")
+    let report = run(binary.quoteShell & " --staged --format json", root)
+    check report.exitCode == 0
+    check parseJson(report.output)["issues"].len == 0
+
+  test "index-only files and deletions preserve the selected snapshot":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-staged-deletion"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "package.json", "{}\n")
+    writeFile(root / "README.md", "```sh\nnpm run missing\n```\n")
+    check run("git add .", root).exitCode == 0
+    check run("git commit -m manifest", root).exitCode == 0
+
+    writeFile(root / "index-only.ts", "const only = 1;\n")
+    check run("git add index-only.ts", root).exitCode == 0
+    check run("rm -rf index-only.ts", root).exitCode == 0
+    let report = run(binary.quoteShell & " --staged --format json", root)
+    check report.exitCode == 0
+    check parseJson(report.output)["scan"]["scanned_files"].getInt() == 1
+
   test "boundary failures are tracked and cannot scan clean":
     let binary = fixtureBinary()
     let root = getTempDir() / "scour-boundary"

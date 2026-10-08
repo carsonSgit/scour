@@ -15,17 +15,6 @@ const DefaultIgnoredDirectories = [
 proc runGit(root: string; args: string): tuple[output: string, exitCode: int] =
   execCmdEx("git -C " & quoteShell(root) & " " & args)
 
-proc normalizeCandidate(root: string; path: string): string =
-  let absolute =
-    if path.isAbsolute: path
-    else: normalizedPath(root / path)
-  if not fileExists(absolute):
-    return ""
-  try:
-    relativePath(absolute, root)
-  except ValueError:
-    absolute
-
 proc isInsideIgnoredDir(path: string): bool =
   for part in path.split({DirSep, AltSep}):
     if part in DefaultIgnoredDirectories:
@@ -41,13 +30,58 @@ proc insideRoot(root, absolute: string): bool =
   let rootCanonical = absolutePath(root)
   canonical == rootCanonical or canonical.startsWith(rootCanonical & DirSep)
 
-proc normalizeCandidate(root: string; path: string; stats: ScanStats): string =
+proc stagedBlobSize(root: string; file: string): int =
+  let git = runGit(root, "cat-file -s :\"" & file & "\"")
+  if git.exitCode != 0:
+    return -1
+  try:
+    parseInt(git.output.strip())
+  except ValueError:
+    -1
+
+proc snapshotFileExists*(root: string; file: string; mode: ScanMode): bool =
+  if mode != scanStaged:
+    fileExists(root / file) or dirExists(root / file)
+  else:
+    stagedBlobSize(root, file) >= 0
+
+proc snapshotPresence*(root: string; file: string; mode: ScanMode): bool =
+  snapshotFileExists(root, file, mode)
+
+proc readSnapshotContent*(root: string; file: string; mode: ScanMode;
+    stats: ScanStats = nil): string =
+  if mode != scanStaged:
+    let path = root / file
+    if not fileExists(path):
+      return ""
+    try:
+      result = readFile(path)
+    except IOError, OSError:
+      if stats != nil:
+        inc(stats.unreadable)
+      result = ""
+  else:
+    let git = runGit(root, "show :\"" & file & "\"")
+    if git.exitCode == 0:
+      result = git.output
+
+proc normalizeCandidate(root: string; path: string; stats: ScanStats;
+    mode = scanAll): string =
   if path.len == 0:
     return ""
   let absolute =
     if path.isAbsolute: path
     else: normalizedPath(root / path)
-  if not fileExists(absolute) and not dirExists(absolute):
+  if mode == scanStaged:
+    if path.isAbsolute:
+      if stats != nil:
+        inc(stats.missing)
+      return ""
+    if stagedBlobSize(root, path) < 0:
+      if stats != nil:
+        inc(stats.missing)
+      return ""
+  elif not (fileExists(absolute) or dirExists(absolute)):
     if stats != nil:
       inc(stats.missing)
     return ""
@@ -76,42 +110,63 @@ proc classifyFile(absolute: string): ScanFileKind =
     fileReadable
 
 proc addCandidate(result: var seq[string]; root: string; path: string;
-    stats: ScanStats = nil) =
-  let relative = normalizeCandidate(root, path, stats)
+    stats: ScanStats = nil; mode = scanAll) =
+  let relative = normalizeCandidate(root, path, stats, mode)
   if relative.len == 0 or isInsideIgnoredDir(relative):
     return
-  let absolute = root / relative
-  case classifyFile(absolute)
-  of fileBinary:
-    if stats != nil:
-      inc(stats.binarySkipped)
-    return
-  of fileUnreadable:
-    if stats != nil:
-      inc(stats.unreadable)
-    return
-  of fileReadable:
+  if mode == scanStaged:
+    if not snapshotPresence(root, relative, mode):
+      if stats != nil:
+        inc(stats.missing)
+      return
+    let content = readSnapshotContent(root, relative, mode)
+    if content.find('\0') >= 0:
+      if stats != nil:
+        inc(stats.binarySkipped)
+      return
     result.add(relative)
+  else:
+    let absolute = root / relative
+    case classifyFile(absolute)
+    of fileBinary:
+      if stats != nil:
+        inc(stats.binarySkipped)
+      return
+    of fileUnreadable:
+      if stats != nil:
+        inc(stats.unreadable)
+      return
+    of fileReadable:
+      result.add(relative)
 
 proc uniqueSorted(paths: seq[string]): seq[string] =
   result = paths.deduplicate()
   result.sort()
 
-proc passesConfiguredFilters*(root, relative: string; runtimeConfig: RuntimeConfig): bool =
+proc passesConfiguredFilters*(root, relative: string; runtimeConfig: RuntimeConfig;
+    mode = scanAll): bool =
   if relative.pathIgnored(runtimeConfig.ignorePaths):
     return false
   if runtimeConfig.maxFileSize > 0:
-    try:
-      if getFileSize(root / relative) > runtimeConfig.maxFileSize:
+    var size = 0
+    if mode == scanStaged:
+      let blob = stagedBlobSize(root, relative)
+      if blob < 0:
         return false
-    except OSError:
+      size = blob
+    else:
+      try:
+        size = getFileSize(root / relative).int
+      except OSError:
+        return false
+    if size > runtimeConfig.maxFileSize:
       return false
   true
 
 proc applyConfiguredFilters(files: seq[string]; root: string;
-    runtimeConfig: RuntimeConfig; stats: ScanStats): seq[string] =
+    runtimeConfig: RuntimeConfig; stats: ScanStats; mode = scanAll): seq[string] =
   for file in files:
-    if passesConfiguredFilters(root, file, runtimeConfig):
+    if passesConfiguredFilters(root, file, runtimeConfig, mode):
       result.add(file)
     else:
       if stats != nil:
@@ -135,7 +190,7 @@ proc gitIgnoredFiles(root: string; files: seq[string]): seq[string] =
   result = result.deduplicate()
 
 proc filesFromGitDiff(root: string; args: string;
-    stats: ScanStats = nil): seq[string] =
+    stats: ScanStats = nil; mode = scanAll): seq[string] =
   let git = runGit(root, args)
   if git.exitCode != 0:
     fatal("git diff failed for '" & args & "' using merge-base semantics; " &
@@ -147,7 +202,7 @@ proc filesFromGitDiff(root: string; args: string;
     lines.setLen(lines.len - 1)
   for line in lines:
     if line.len > 0:
-      result.addCandidate(root, line, stats)
+      result.addCandidate(root, line, stats, mode)
   result = uniqueSorted(result)
 
 proc collectFilesRec(result: var seq[string]; root, directory: string;
@@ -205,19 +260,19 @@ proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions;
     stats = new ScanStats
   case mode
   of scanStaged:
-    result.files = filesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR -z", stats)
+    result.files = filesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR -z", stats, mode)
   of scanChanged:
     if options.sinceRef.len == 0:
       fatal("changed scan requires --since <ref>; use --all for the full tracked checkout")
     result.baseRef = options.sinceRef
-    result.files = filesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR -z " & quoteShell(options.sinceRef & "...HEAD"), stats)
+    result.files = filesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR -z " & quoteShell(options.sinceRef & "...HEAD"), stats, mode)
   of scanAll:
     result.files = allFiles(repo.root, runtimeConfig.followSymlinks, stats)
   of scanExplicitPaths:
     result.files = explicitFiles(repo.root, options.explicitPaths, runtimeConfig.followSymlinks, stats)
   result.stats = stats
   result.selectedFiles = result.files
-  result.files = result.files.applyConfiguredFilters(repo.root, runtimeConfig, stats)
+  result.files = result.files.applyConfiguredFilters(repo.root, runtimeConfig, stats, mode)
   if runtimeConfig.respectGitignore and repo.isGit and result.files.len > 0:
     let ignored = gitIgnoredFiles(repo.root, result.files)
     if ignored.len > 0:
