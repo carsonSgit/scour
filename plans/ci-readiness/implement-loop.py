@@ -294,7 +294,7 @@ def execute(items: list[Item]) -> None:
             if state["pending"] is None:
                 base = run("git", "rev-parse", "HEAD")
                 target = state["branch"]
-                branch = f"feature/qrtx-00/scour-{number}"
+                branch = f"feature/scour-{number}"
                 if run("git", "branch", "--list", branch):
                     raise RuntimeError(f"Issue branch already exists: {branch}")
                 state["pending"] = {
