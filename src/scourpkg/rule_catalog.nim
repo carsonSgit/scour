@@ -19,7 +19,6 @@ type
     example*: string
     fix*: string
     fixable*: bool
-
 const Rules* = [
   RuleDefinition(id: "ci-command-drift", category: "ci-drift",
     defaultSeverity: ruleSeverityError, defaultTriage: triageBlocker,
@@ -42,7 +41,8 @@ const Rules* = [
     defaultSeverity: ruleSeverityWarning, defaultTriage: triageFixNow,
     purpose: "Find Dockerfiles without a same-directory .dockerignore.",
     example: "Dockerfile without .dockerignore",
-    fix: "Add a .dockerignore beside the Dockerfile."),
+    fix: "Add a .dockerignore beside the Dockerfile.",
+    fixable: true),
   RuleDefinition(id: "duplicate-lockfiles", category: "package-drift",
     defaultSeverity: ruleSeverityWarning, defaultTriage: triageFixNow,
     purpose: "Find package roots with multiple package manager lockfiles.",
@@ -87,7 +87,8 @@ const Rules* = [
     defaultSeverity: ruleSeverityWarning, defaultTriage: triageReview,
     purpose: "Find GitHub Actions that are not pinned to a full commit SHA.",
     example: "uses: actions/checkout@v4",
-    fix: "Pin the action to a full 40-character commit SHA and retain the release tag in a comment."),
+    fix: "Pin the action to a full 40-character commit SHA and retain the release tag in a comment.",
+    fixable: true),
   RuleDefinition(id: "readme-command-drift", category: "docs-drift",
     defaultSeverity: ruleSeverityWarning, defaultTriage: triageFixNow,
     purpose: "Find README commands that reference missing scripts or targets.",

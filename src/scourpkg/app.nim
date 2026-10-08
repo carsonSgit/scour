@@ -79,7 +79,7 @@ proc runScour*(): int =
         runtimeConfig)
     let plan = outcome.plan
     if options.fixPreview:
-      let fixPlan = planFixes(outcome.issues, repoContext.root,
+      let fixPlan = planFixes(outcome.issues, repoContext.root, runtimeConfig,
           outcome.plan.stats)
       let patchPath = repoContext.root & DirSep & "scour-fix.patch"
       writePatchFile(fixPlan, patchPath)
@@ -92,13 +92,25 @@ proc runScour*(): int =
           "; patch written to scour-fix.patch. No checkout files changed.")
       return 0
     if options.fixApply:
-      let fixPlan = planFixes(outcome.issues, repoContext.root,
+      let fixPlan = planFixes(outcome.issues, repoContext.root, runtimeConfig,
           outcome.plan.stats)
       var plannedFindings = 0
       for entry in fixPlan:
         plannedFindings += entry.edits.len
       if plannedFindings == 0:
+        var unfixableOnly = 0
+        var remainingNoop = 0
+        for original in outcome.issues:
+          if not fixableIssue(original):
+            inc unfixableOnly
+          else:
+            inc remainingNoop
         stdout.writeLine("No fixable findings; nothing to change.")
+        stdout.write(renderIssues(outcome.issues, outcome.effectiveOptions,
+            plan))
+        if not outcome.effectiveOptions.exitZero and
+            (unfixableOnly > 0 or remainingNoop > 0):
+          return 1
         return 0
       let applied = applyFixPlan(fixPlan, repoContext.root)
       if applied.stale.len > 0 or applied.failed.len > 0:
