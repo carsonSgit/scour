@@ -23,6 +23,8 @@ Options:
   --fail-on <level> Fail on: error, warning, or info.
   --exit-zero      Return success even when findings meet the threshold.
   --color <value>  Color mode: auto, always, or never.
+  --baseline <path>  Gate only findings absent from this baseline file.
+  --write-baseline <path>  Write the scan's fingerprints as a baseline.
   --fix            Plan fixes and write scour-fix.patch without changing files.
   --fix-apply      Apply the planned fixes, then rerun the scan.
 """
