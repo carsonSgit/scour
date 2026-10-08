@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.4.10] - 2026-10-08
+
+### Other
+- Fix version match string and Windows packaging steps
+
 ## [0.4.9] - 2026-10-08
 
 ### Other
