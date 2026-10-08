@@ -149,7 +149,22 @@ format = "github"
 
 Explicit CLI flags override config values.
 
-## GitLab CI
+## Container Image
+
+`container/Dockerfile` builds from precompiled binaries and runs Scour as the
+dedicated `scour` user with git, tar, gzip, and curl installed. Mount the repo
+read-only (`-v "$PWD":/workspace:ro`) and send outputs to a writable directory:
+
+```sh
+docker run --rm -v "$PWD":/workspace:ro -w /workspace scour:v0.4.5 --all --format json > /host/scan.json
+```
+
+Verifying the binary's libc dependencies (Alpine/musl): run the musl-static
+build (not yet published) or build from source inside the image.
+
+`objdump -p scour-linux-x86_64 | grep -A2 'GLIBC'` verifies glibc requires
+against the documented minimum (2.17 for the Alpine/debian-slim mix shipped).
+
 
 Use the same binary from a version-pinned release. The job needs no Nim
 compiler, clones with enough history for `scour --since` (or `--all`), and

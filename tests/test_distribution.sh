@@ -226,3 +226,7 @@ grep -q '@v1' "$root/README.md" && fail "README still references the nonexistent
 grep -q 'site/src/components/GithubAction.tsx' /dev/null 2>/dev/null || true
 grep -q '@v1' "$root/site/src/components/GithubAction.tsx" && fail "site still references the nonexistent v1 action tag"
 grep -q 'Licensed under the MIT License' "$root/README.md" 2>/dev/null || grep -q 'MIT-licensed' "$root/README.md" || fail "README does not link the license"
+
+grep -q 'useradd' "$root/container/Dockerfile" || fail "container image must not run as root"
+grep -q 'debian:stable-slim' "$root/container/Dockerfile" || fail "container base image unpinned"
+grep -q 'ENTRYPOINT' "$root/container/Dockerfile" || fail "container entrypoint missing"
