@@ -1,3 +1,4 @@
+import std/json, std/sha1
 import algorithm
 
 import issues
@@ -17,6 +18,7 @@ type
     purpose*: string
     example*: string
     fix*: string
+    fixable*: bool
 
 const Rules* = [
   RuleDefinition(id: "ci-command-drift", category: "ci-drift",

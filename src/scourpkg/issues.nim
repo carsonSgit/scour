@@ -1,4 +1,4 @@
-import strutils, tables
+import std/sha1, strutils, tables
 
 type
   Severity* = enum
@@ -28,6 +28,7 @@ type
     column*: int
     message*: string
     suggestion*: string
+    findingId*: string
 
   SeverityCounts* = object
     errors*: int
@@ -113,6 +114,16 @@ proc hasFailingIssues*(issues: openArray[Issue];
   for issue in issues:
     if issue.severity.meetsFailureThreshold(threshold):
       return true
+
+proc stableFindingId*(issue: Issue; seen: var Table[string, int]): string =
+  let base = $secureHash(issue.ruleId & "\0" & issue.file & "\0" & issue.message &
+      "\0" & issue.suggestion)
+  let ordinal = seen.getOrDefault(base, 0)
+  seen[base] = ordinal + 1
+  if ordinal == 0:
+    base
+  else:
+    base & "-" & $ordinal
 
 proc summarizeIssues*(issues: openArray[Issue]): IssueSummary =
   IssueSummary(
