@@ -92,10 +92,21 @@ The action never touches Git refs; fixes ship as downloaded artifacts.
 
 ## Releases
 
-Releases are built by `.github/workflows/release.yml`. Pushing a `v*` tag
-publishes five platform archives and a SHA-256 checksum file. Before tagging,
-run the workflow manually with the intended version to validate packaging on
-all five hosted runners.
+The release workflow publishes when `main` advances and detects a releasable
+Conventional Commit. Pushing to `main` prepares one candidate version (git-cliff
+bumps from commit history), builds five platform archives on their runners,
+validates the package contents, verifies checksums, and only then publishes
+the GitHub release. No `v*` tag is needed by hand; the workflow creates one at
+the release commit. Dispatch `mode: validate` runs the full prepare/build/validate
+path with no commits, tags, or publications.
+
+Retry after a build or upload failure: run the workflow manually for the same
+version. The workflow detects the existing release, inspects its assets, and
+either stops (nothing missing) or republishes only the missing assets without a
+further version bump. Invalid versions fail during prepare before any write.
+
+Before tagging by hand instead, run the workflow with `mode: validate` to validate
+packaging on all five hosted runners.
 
 ## CI Output
 

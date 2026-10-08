@@ -182,3 +182,13 @@ assert_contains "$tmp/output" "warnings=0"
 assert_contains "$tmp/summary" "triage report"
 
 echo "distribution tests passed"
+
+# bump_version.sh rejects invalid versions without touching source
+tmpcopy="$tmp/release-src"
+mkdir -p "$tmpcopy/src"
+printf 'version       = "0.4.5"\n' > "$tmpcopy/scour.nimble"
+sed "s|root=$(pwd)|root=$tmpcopy|" & >/dev/null 2>&1 || true
+if bash "$root/scripts/bump_version.sh" "invalid" 1> /dev/null 2> "$tmp/bump.err"; then
+  fail "invalid version accepted by bump_version.sh"
+fi
+assert_contains "$tmp/bump.err" "not a bare X.Y.Z semver"
