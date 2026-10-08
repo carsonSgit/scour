@@ -455,7 +455,7 @@ suite "config loading":
     createDir(root)
     writeFile(root / "scour.toml", [
       "[scan]",
-      "max_file_size = \"1KB\"",
+      "max_file_size = 1024",
       "",
       "[output]",
       "format = \"json\"",
@@ -1027,6 +1027,8 @@ suite "security rules":
 
 suite "scan planning and files":
   test "selects default modes":
+    check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true), "staged") == scanStaged
+    check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true), "full") == scanAll
     check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: true)) == scanAll
     check resolveScanMode(CliOptions(), RepoContext(root: ".", isGit: false)) == scanAll
 
@@ -1617,3 +1619,108 @@ suite "command behavior":
     let missing = run(binary.quoteShell & " --since c3fa8041", shallow)
     check missing.exitCode == 2
     check "merge-base semantics" in missing.output
+
+  test "configuration parse preserves quoted comments and escapes":
+    let fileLines = @[
+      "[ignore]",
+      "paths = [",
+      "  \"hash#tag/**\",  # covered sections",
+      "  \"comma,dir/**\",",
+      "  'literal\\backslash',",
+      "  \"decode\\\"quote\",",
+      "  \"move\\\\together\",",
+      "]",
+    ]
+    let path = getTempDir() / "scour-config-quote.toml"
+    writeFile(path, fileLines.join("\n"))
+    let config = loadConfig(ConfigDiscovery(path: path, isExplicit: true))
+    check config.ignorePaths == @[
+      "hash#tag/**", "comma,dir/**",
+      "literal" & "\\" & "backslash",
+      "decode" & "\"" & "quote",
+      "move" & "\\" & "together"
+    ]
+
+  test "invalid configuration values fail on duplicate keys and wrong types":
+    for text in [
+      "[scan]\nmax_file_size = 100\nmax_file_size = 200\n",
+      "[scan]\nmax_file_size = \"150\"\n",
+      "[scan]\nmode = \"changed\"\n",
+      "[scan]\nmax_file_size = 99999999999999999999\n",
+      "[ignore]\npaths = [\"x\", 5]\n",
+      "[scan]\nrespect_gitignore = \"yes\"\n"
+    ]:
+      let path = getTempDir() / "scour-config-invalid.toml"
+      writeFile(path, text)
+      expectFatal:
+        discard loadConfig(ConfigDiscovery(path: path, isExplicit: true))
+
+  test "invalid configuration files exit 2 from the CLI":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-config-exit"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "scour.toml", "[scan]\nmode = \"changed\"\n")
+    let report = run(binary.quoteShell & " --format json", root)
+    check report.exitCode == 2
+    check "expected full or staged" in report.output
+
+  test "respect_gitignore excludes ignored untracked files while kept body rules see tracked files":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-gitignore-mode"
+    cleanDir(root)
+    initGitRepo(root)
+    createDir(root / "dist")
+    writeFile(root / "dist" / "generated.js", "build()\n")
+    check run("git add dist", root).exitCode == 0
+    check run("git commit -m tracked", root).exitCode == 0
+    writeFile(root / "ignored.log", "noise\n")
+    writeFile(root / ".gitignore", "ignored.log\n")
+
+    let context = RepoContext(root: root, isGit: true)
+    let unfiltered = collectCandidates(context, scanAll, CliOptions())
+    check unfiltered.files.count("ignored.log") == 1
+    let config = RuntimeConfig(ignorePaths: @[], respectGitignore: true)
+    let filtered = collectCandidates(context, scanAll, CliOptions(), config)
+    check filtered.files.count("ignored.log") == 0
+    check filtered.files.count("dist/generated.js") == 1
+
+    writeFile(root / "scour.toml", "[scan]\nrespect_gitignore = true\n")
+    let report = run(binary.quoteShell & " --format json", root)
+    check report.exitCode == 0
+    check "generated-files" in report.output
+    check parseJson(report.output)["scan"]["mode"].getStr() == "all"
+
+  test "config mode staged and follow_symlinks change behavior with CLI precedence":
+    let binary = fixtureBinary()
+    let root = getTempDir() / "scour-config-precedence"
+    cleanDir(root)
+    initGitRepo(root)
+    writeFile(root / "one.ts", "const one = 1;\n")
+    writeFile(root / "two.ts", "const two = 2;\n")
+    check run("git add one.ts", root).exitCode == 0
+    check run("git add two.ts", root).exitCode == 0
+    createDir(root / "outside")
+    writeFile(root / "outside" / "lead.ts", "const lead = 3;\n")
+    writeFile(root / "one.ts", "const one = 1;\n")
+    writeFile(root / "two.ts", "const two = 2;\n")
+    check run("git add .", root).exitCode == 0
+    check run("git commit -m added", root).exitCode == 0
+    writeFile(root / "staged.ts", "const staged = 1;\n")
+    check run("git add staged.ts", root).exitCode == 0
+    check run("ln -s outside/lead.ts followed.ts", root).exitCode == 0
+    writeFile(root / "scour.toml", "[scan]\nmode = \"staged\"\n")
+
+    let staged = run(binary.quoteShell & " --format json", root)
+    check parseJson(staged.output)["scan"]["scanned_files"].getInt() == 1
+    let cliWins = run(binary.quoteShell & " --all --format json", root)
+    let cliCount = parseJson(cliWins.output)["scan"]["scanned_files"].getInt()
+    check parseJson(cliWins.output)["scan"]["mode"].getStr() == "all"
+
+    let context = RepoContext(root: root, isGit: true)
+    let withoutFollow = collectCandidates(context, scanAll, CliOptions())
+    check withoutFollow.files.count("followed.ts") == 0
+    let config = RuntimeConfig(ignorePaths: @[], followSymlinks: true)
+    let withFollow = collectCandidates(context, scanAll, CliOptions(), config)
+    check withFollow.files.count("followed.ts") == 1
+    check withFollow.files.len == withoutFollow.files.len + 1

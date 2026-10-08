@@ -1,4 +1,4 @@
-import os, strutils
+import os, strutils, sets, tables
 
 import errors, issues, rule_catalog, scan_plan
 
@@ -19,6 +19,9 @@ type
     outputColor*: ColorMode
     outputFormat*: OutputFormat
     failOn*: FailureThreshold
+    scanMode*: string
+    respectGitignore*: bool
+    followSymlinks*: bool
 
 proc defaultConfig*(): RuntimeConfig =
   RuntimeConfig(
@@ -31,7 +34,10 @@ proc defaultConfig*(): RuntimeConfig =
         "OLDPWD"],
     outputColor: colorAuto,
     outputFormat: formatText,
-    failOn: failOnError
+    failOn: failOnError,
+    scanMode: "",
+    respectGitignore: false,
+    followSymlinks: false
   )
 
 proc canonicalRuleId*(key: string): string =
@@ -52,6 +58,25 @@ proc parseBool(value: string; path: string; line: int): bool =
     false
   else:
     fatal("invalid config value in " & path & ":" & $line & ": expected true or false")
+
+proc decodeEscapes(value: string): string =
+  var index = 0
+  while index < value.len:
+    if value[index] == '\\' and index + 1 < value.len:
+      case value[index + 1]
+      of '\\': result.add('\\')
+      of '"': result.add('"')
+      of '\'': result.add('\'')
+      of 'n': result.add('\n')
+      of 't': result.add('\t')
+      of 'r': result.add('\r')
+      else:
+        result.add('\\')
+        result.add(value[index + 1])
+      inc index, 2
+    else:
+      result.add(value[index])
+      inc index
 
 proc parseSeverity(value: string; path: string; line: int;
     key: string): RuleSeverity =
@@ -76,23 +101,60 @@ proc parseTriage(value: string; path: string; line: int;
     fatal("invalid config value in " & path & ":" & $line & " for " & key &
         ": unknown triage `" & value.unquote() & "`. Expected one of: blocker, fix-now, review, cleanup, ignored")
 
-proc parseStringArray(value: string; path: string; line: int; key: string): seq[string] =
+proc parseStringArray(value: string; path: string; line: int;
+    key: string): seq[string] =
   let text = value.strip()
   if not (text.startsWith("[") and text.endsWith("]")):
-    fatal("invalid config value in " & path & ":" & $line & " for " & key & ": expected string array")
-  let inner = text[1 ..< text.high].strip()
-  if inner.len == 0:
-    return @[]
-  for part in inner.split(','):
-    let item = part.strip()
-    if item.len == 0:
+    fatal("invalid config value in " & path & ":" & $line & " for " & key &
+        ": expected string array")
+  result = @[]
+  var item = ""
+  var quote: char = '\0'
+  var index = 1
+  var final = text.len - 1
+  var closed = false
+  while index < final:
+    let ch = text[index]
+    if quote != '\0':
+      if ch == '\\' and quote == '"' and index + 1 < final:
+        item.add(ch)
+        item.add(text[index + 1])
+        inc index, 2
+        continue
+      if ch == quote:
+        if quote == '"':
+          result.add(item.decodeEscapes())
+        else:
+          result.add(item)
+        item = ""
+        quote = '\0'
+        inc index
+        continue
+      item.add(ch)
+      inc index
       continue
-    if item.len < 2 or item[0] != '"' or item[^1] != '"':
-      fatal("invalid config value in " & path & ":" & $line & " for " & key & ": expected quoted strings")
-    result.add(item.unquote())
+    case ch
+    of '"':
+      quote = '"'
+      item = ""
+      inc index
+    of '\'':
+      quote = '\''
+      item = ""
+      inc index
+    of ',':
+      inc index
+    else:
+      if ch notin {' ', '\t'}:
+        fatal("invalid config value in " & path & ":" & $line & " for " & key &
+            ": expected quoted strings")
+      inc index
+  if quote != '\0':
+    fatal("invalid config value in " & path & ":" & $line & " for " & key &
+        ": unterminated string")
 
 proc parseSize(value: string; path: string; line: int; key: string): int =
-  let text = value.unquote().strip().toLowerAscii()
+  let text = value.strip().toLowerAscii()
   var number = ""
   var suffix = ""
   for ch in text:
@@ -100,15 +162,27 @@ proc parseSize(value: string; path: string; line: int; key: string): int =
       number.add(ch)
     else:
       suffix.add(ch)
-  if number.len == 0:
-    fatal("invalid config value in " & path & ":" & $line & " for " & key & ": expected byte size")
-  result = parseInt(number)
+  if number.len == 0 or suffix.strip().len == 0 and text != number:
+    fatal("invalid config value in " & path & ":" & $line & " for " & key &
+        ": expected byte size")
+  for ch in suffix.strip():
+    if ch notin {'a'..'z'}:
+      fatal("invalid config value in " & path & ":" & $line & " for " & key &
+          ": expected byte size")
+  try:
+    result = parseInt(number)
+  except ValueError:
+    fatal("invalid config value in " & path & ":" & $line & " for " & key &
+        ": byte size exceeds the supported range")
   case suffix.strip()
   of "", "b": discard
-  of "kb", "k": result *= 1024
-  of "mb", "m": result *= 1024 * 1024
+  of "kb", "k":
+    result *= 1024
+  of "mb", "m":
+    result *= 1024 * 1024
   else:
-    fatal("invalid config value in " & path & ":" & $line & " for " & key & ": expected bytes, KB, or MB")
+    fatal("invalid config value in " & path & ":" & $line & " for " & key &
+        ": expected bytes, KB, or MB")
 
 proc ruleIndex(config: RuntimeConfig; ruleId: string): int =
   for i in 0 ..< config.rules.len:
@@ -188,7 +262,28 @@ proc pathIgnored*(path: string; patterns: openArray[string]): bool =
   false
 
 proc stripComment(line: string): string =
-  let marker = line.find('#')
+  var marker = -1
+  var quote: char = '\0'
+  var index = 0
+  while index < line.len:
+    let ch = line[index]
+    if quote != '\0':
+      if ch == '\\' and quote == '"':
+        inc index, 2
+        continue
+      if ch == quote:
+        quote = '\0'
+      inc index
+      continue
+    case ch
+    of '"', '\'':
+      quote = ch
+      inc index
+    of '#':
+      marker = index
+      break
+    else:
+      inc index
   if marker >= 0:
     line[0 ..< marker].strip()
   else:
@@ -207,6 +302,7 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
   var pendingKey = ""
   var pendingValue = ""
   var pendingLine = 0
+  var seenKeys = initHashSet[string]()
   let content = readFile(discovery.path)
   var lineNumber = 0
   for rawLine in content.splitLines():
@@ -250,6 +346,10 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
     let qualified =
       if section.len > 0: section & "." & key
       else: key
+    if seenKeys.contains(qualified):
+      fatal("duplicate config key in " & discovery.path & ":" &
+          $lineNumber & ": " & qualified)
+    seenKeys.incl(qualified)
 
     case section
     of "":
@@ -296,8 +396,16 @@ proc loadConfig*(discovery: ConfigDiscovery): RuntimeConfig =
     of "scan":
       if key == "max_file_size":
         result.maxFileSize = parseSize(value, discovery.path, lineNumber, qualified)
-      elif key in ["mode", "respect_gitignore", "follow_symlinks"]:
-        discard
+      elif key == "mode":
+        let configured = value.unquote()
+        if configured notin ["full", "staged"]:
+          fatal("invalid config value in " & discovery.path & ":" &
+              $lineNumber & " for " & qualified & ": expected full or staged")
+        result.scanMode = configured
+      elif key == "respect_gitignore":
+        result.respectGitignore = parseBool(value, discovery.path, lineNumber)
+      elif key == "follow_symlinks":
+        result.followSymlinks = parseBool(value, discovery.path, lineNumber)
       else:
         fatal("unknown config key in " & discovery.path & ":" & $lineNumber &
             ": " & qualified)

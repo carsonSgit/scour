@@ -28,7 +28,7 @@ proc runScour*(): int =
       return 0
     of commandScan, commandTriage:
       discard
-    let mode = resolveScanMode(options, repoContext)
+    let mode = resolveScanMode(options, repoContext, runtimeConfig.scanMode)
     var effectiveOptions = options
     if not effectiveOptions.colorExplicit:
       effectiveOptions.colorMode = runtimeConfig.outputColor

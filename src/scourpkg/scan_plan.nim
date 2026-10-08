@@ -61,7 +61,7 @@ proc modeName*(mode: ScanMode): string =
   of scanAll: "all"
   of scanExplicitPaths: "explicit-paths"
 
-proc resolveScanMode*(options: CliOptions; repo: RepoContext): ScanMode =
+proc resolveScanMode*(options: CliOptions; repo: RepoContext; configuredMode = ""): ScanMode =
   if options.explicitPaths.len > 0:
     return scanExplicitPaths
   if options.staged:
@@ -70,4 +70,6 @@ proc resolveScanMode*(options: CliOptions; repo: RepoContext): ScanMode =
     return scanChanged
   if options.all:
     return scanAll
+  if configuredMode == "staged":
+    return scanStaged
   scanAll
