@@ -118,7 +118,7 @@ proc explicitFiles(root: string; paths: seq[string]): seq[string] =
       result.collectFilesRec(root, absolute)
   result = uniqueSorted(result)
 
-proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; runtimeConfig = defaultConfig()): tuple[baseRef: string, files: seq[string]] =
+proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; runtimeConfig = defaultConfig()): tuple[baseRef: string, files, selectedFiles: seq[string]] =
   case mode
   of scanStaged:
     result.files = filesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR")
@@ -146,4 +146,5 @@ proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; 
     result.files = allFiles(repo.root)
   of scanExplicitPaths:
     result.files = explicitFiles(repo.root, options.explicitPaths)
+  result.selectedFiles = result.files
   result.files = result.files.applyConfiguredFilters(repo.root, runtimeConfig)

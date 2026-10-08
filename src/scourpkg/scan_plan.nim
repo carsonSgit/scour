@@ -52,6 +52,7 @@ type
     sinceRef*: string
     baseRef*: string
     candidates*: seq[string]
+    selectedFiles*: seq[string]
 
 proc modeName*(mode: ScanMode): string =
   case mode

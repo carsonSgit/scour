@@ -479,7 +479,7 @@ proc scanPackageLockDrift(result: var seq[Issue]; plan: ScanPlan;
   var candidateSet = initTable[string, bool]()
   for file in files:
     fileSet[file] = true
-  for candidate in plan.candidates:
+  for candidate in plan.selectedFiles:
     candidateSet[candidate.normalizeRepoPath()] = true
 
   for candidate in plan.candidates:
@@ -511,7 +511,7 @@ proc scanDependencyLockDrift(result: var seq[Issue]; plan: ScanPlan;
   var candidateSet = initTable[string, bool]()
   for file in files:
     fileSet[file] = true
-  for candidate in plan.candidates:
+  for candidate in plan.selectedFiles:
     candidateSet[candidate.normalizeRepoPath()] = true
 
   for candidate in plan.candidates:

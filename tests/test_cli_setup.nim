@@ -98,7 +98,8 @@ proc testPlan(root: string; candidates: seq[string]): ScanPlan =
   ScanPlan(
     mode: scanExplicitPaths,
     repo: RepoContext(root: root, isGit: false),
-    candidates: candidates
+    candidates: candidates,
+    selectedFiles: candidates
   )
 
 proc hasIssue(issues: seq[Issue]; ruleId: string): bool =
@@ -924,7 +925,8 @@ suite "cross-reference rules":
     let issues = scanCrossReference(ScanPlan(
       mode: scanChanged,
       repo: RepoContext(root: root, isGit: true),
-      candidates: @["app/package.json"]
+      candidates: @["app/package.json"],
+      selectedFiles: @["app/package.json"]
     ))
     check issues.hasIssue("package-lock-drift")
     let issue = issues.firstIssue("package-lock-drift")
@@ -949,14 +951,16 @@ suite "cross-reference rules":
     let withLockIssues = scanCrossReference(ScanPlan(
       mode: scanChanged,
       repo: RepoContext(root: root, isGit: true),
-      candidates: @["with-lock/package.json", "with-lock/package-lock.json"]
+      candidates: @["with-lock/package.json", "with-lock/package-lock.json"],
+      selectedFiles: @["with-lock/package.json", "with-lock/package-lock.json"]
     ))
     check withLockIssues.hasIssue("package-lock-drift") == false
 
     let noLockIssues = scanCrossReference(ScanPlan(
       mode: scanChanged,
       repo: RepoContext(root: root, isGit: true),
-      candidates: @["no-lock/package.json"]
+      candidates: @["no-lock/package.json"],
+      selectedFiles: @["no-lock/package.json"]
     ))
     check noLockIssues.hasIssue("package-lock-drift") == false
 
@@ -975,7 +979,8 @@ suite "cross-reference rules":
     let issues = scanCrossReference(ScanPlan(
       mode: scanChanged,
       repo: RepoContext(root: root, isGit: true),
-      candidates: @["rust/Cargo.toml", "python/pyproject.toml"]
+      candidates: @["rust/Cargo.toml", "python/pyproject.toml"],
+      selectedFiles: @["rust/Cargo.toml", "python/pyproject.toml"]
     ))
     check issues.len == 2
     check issues.hasIssue("dependency-lock-drift")
@@ -1126,30 +1131,42 @@ suite "scan planning and files":
     check collected.files == @["kept.ts"]
 
 suite "command behavior":
-  test "nonignored manifests validate against ignored lockfile context":
+  test "nonignored manifests preserve ignored and oversized selected lockfile context":
     let binary = fixtureBinary()
     let root = getTempDir() / "scour-filter-lock-context"
     cleanDir(root)
     initGitRepo(root)
     writeFile(root / "package.json", "{}\n")
-    writeFile(root / "package-lock.json", "{}\n")
+    writeFile(root / "package-lock.json", "{}\n" & repeat(' ', 100))
     writeFile(root / "Cargo.toml", "[package]\nname = \"app\"\n")
-    writeFile(root / "Cargo.lock", "# lock\n")
+    writeFile(root / "Cargo.lock", "# lock\n" & repeat(' ', 100))
     check run("git add .", root).exitCode == 0
     for gitRepo in [true, false]:
       if not gitRepo:
         removeDir(root / ".git")
       writeFile(root / "scour.toml", "")
       check parseJson(run(binary.quoteShell & " --all --format json", root).output)["issues"].len == 0
-      writeFile(root / "scour.toml",
-          "[ignore]\npaths = [\"package-lock.json\", \"Cargo.lock\"]\n")
-      for mode in ["--all", "package.json Cargo.toml"]:
-        let report = run(binary.quoteShell & " --format json " & mode, root)
+      for policy in ["[ignore]\npaths = [\"package-lock.json\", \"Cargo.lock\"]\n",
+          "[scan]\nmax_file_size = 50\n"]:
+        writeFile(root / "scour.toml", policy)
+        var modes = @["--all", "package.json Cargo.toml package-lock.json Cargo.lock"]
+        if gitRepo:
+          modes.add("--staged")
+        for mode in modes:
+          let report = run(binary.quoteShell & " --format json " & mode, root)
+          check report.exitCode == 0
+          check parseJson(report.output)["issues"].len == 0
+        let report = run(binary.quoteShell & " --format json package.json Cargo.toml", root)
         check report.exitCode == 0
         let issues = parseJson(report.output)["issues"]
         check issues.len == 2
         check issues[0]["rule"].getStr() == "package-lock-drift"
         check issues[1]["rule"].getStr() == "dependency-lock-drift"
+      if gitRepo:
+        check run("git commit -m manifests-and-lockfiles", root).exitCode == 0
+        let report = run(binary.quoteShell & " --format json --since HEAD~1", root)
+        check report.exitCode == 0
+        check parseJson(report.output)["issues"].len == 0
 
   test "nonignored files validate against ignored and oversized context":
     let binary = fixtureBinary()
