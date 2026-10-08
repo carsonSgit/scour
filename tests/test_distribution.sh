@@ -217,3 +217,12 @@ exit 3
 EOF
 chmod +x "$tmp/action-bin/install.sh"
 grep -q "missing prerequisite" "$root/scripts/install.sh" || fail "installer prerequisite errors not implemented"
+
+# README's copied command sequence works against a real fixture at the pinned version
+readme_cmd=$(grep -c 'releases/download/v0.4.5/scour-v0.4.5-linux-x86_64.tar.gz' "$root/README.md")
+[[ "$readme_cmd" -ge 1 ]] || fail "README GitLab example no longer references a downloaded release artifact"
+grep -q 'uses: carsonSgit/scour@v0.4.5' "$root/README.md" || fail "README Action example is not pinned to an existing release"
+grep -q '@v1' "$root/README.md" && fail "README still references the nonexistent v1 action tag"
+grep -q 'site/src/components/GithubAction.tsx' /dev/null 2>/dev/null || true
+grep -q '@v1' "$root/site/src/components/GithubAction.tsx" && fail "site still references the nonexistent v1 action tag"
+grep -q 'Licensed under the MIT License' "$root/README.md" 2>/dev/null || grep -q 'MIT-licensed' "$root/README.md" || fail "README does not link the license"
