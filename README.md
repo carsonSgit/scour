@@ -4,6 +4,28 @@
 
 Fast pre-merge checks for repo hygiene, config drift, and PR mistakes.
 
+## Configuration
+
+`scour.toml` (or `--config <path>`) supports:
+
+```toml
+fail_on = "error"          # error, warning, or info
+
+[scan]
+max_file_size = "1 MB"     # bytes, KB, or MB
+mode = "full"              # full or staged; CLI flags win
+respect_gitignore = true   # exclude gitignored files from scanned candidates
+follow_symlinks = false    # include symlinked files and directories
+
+[ignore]
+paths = ["dist/", "build/**"]
+```
+
+Path patterns match repository-relative paths with `/` separators; backslashes
+are normalized. `path` and `path/` match the file or directory and everything
+below it, `path/**` matches everything below the prefix, and `#` starts a
+comment unless it is inside a quoted string.
+
 ## Commands
 
 ```sh

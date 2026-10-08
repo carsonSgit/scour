@@ -72,6 +72,23 @@ proc applyConfiguredFilters(files: seq[string]; root: string; runtimeConfig: Run
     if passesConfiguredFilters(root, file, runtimeConfig):
       result.add(file)
 
+proc gitIgnoredFiles(root: string; files: seq[string]): seq[string] =
+  if files.len == 0:
+    return @[]
+  let listPath = joinPath(getTempDir(), "scour-ignore-check")
+  writeFile(listPath, files.join("\0") & "\0")
+  let git = runGit(root, "check-ignore -z --stdin < " & quoteShell(listPath))
+  try:
+    removeFile(listPath)
+  except OSError:
+    discard
+  if git.exitCode != 0 and git.output.strip().len == 0:
+    return @[]
+  for entry in git.output.split('\0'):
+    if entry.len > 0:
+      result.add(entry)
+  result = result.deduplicate()
+
 proc filesFromGitDiff(root: string; args: string): seq[string] =
   let git = runGit(root, args)
   if git.exitCode != 0:
@@ -83,23 +100,27 @@ proc filesFromGitDiff(root: string; args: string): seq[string] =
       result.addCandidate(root, line)
   result = uniqueSorted(result)
 
-proc collectFilesRec(result: var seq[string]; root, directory: string) =
+proc collectFilesRec(result: var seq[string]; root, directory: string; followSymlinks = false) =
   if isInsideIgnoredDir(directory):
     return
   for kind, path in walkDir(directory):
     case kind
     of pcDir:
-      result.collectFilesRec(root, path)
-    of pcFile, pcLinkToFile:
+      result.collectFilesRec(root, path, followSymlinks)
+    of pcFile:
       result.addCandidate(root, path)
-    else:
-      discard
+    of pcLinkToFile:
+      if followSymlinks:
+        result.addCandidate(root, path)
+    of pcLinkToDir:
+      if followSymlinks:
+        result.collectFilesRec(root, path, followSymlinks)
 
-proc allFiles(root: string): seq[string] =
-  result.collectFilesRec(root, root)
+proc allFiles(root: string; followSymlinks = false): seq[string] =
+  result.collectFilesRec(root, root, followSymlinks)
   result = uniqueSorted(result)
 
-proc explicitFiles(root: string; paths: seq[string]): seq[string] =
+proc explicitFiles(root: string; paths: seq[string]; followSymlinks = false): seq[string] =
   for path in paths:
     let absolute =
       if path.isAbsolute: path
@@ -107,7 +128,7 @@ proc explicitFiles(root: string; paths: seq[string]): seq[string] =
     if fileExists(absolute):
       result.addCandidate(root, absolute)
     elif dirExists(absolute):
-      result.collectFilesRec(root, absolute)
+      result.collectFilesRec(root, absolute, followSymlinks)
   result = uniqueSorted(result)
 
 proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; runtimeConfig = defaultConfig()): tuple[baseRef: string, files, selectedFiles: seq[string]] =
@@ -120,8 +141,13 @@ proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; 
     result.baseRef = options.sinceRef
     result.files = filesFromGitDiff(repo.root, "diff --name-only --diff-filter=ACMR -z " & quoteShell(options.sinceRef & "...HEAD"))
   of scanAll:
-    result.files = allFiles(repo.root)
+    result.files = allFiles(repo.root, runtimeConfig.followSymlinks)
   of scanExplicitPaths:
-    result.files = explicitFiles(repo.root, options.explicitPaths)
+    result.files = explicitFiles(repo.root, options.explicitPaths, runtimeConfig.followSymlinks)
   result.selectedFiles = result.files
   result.files = result.files.applyConfiguredFilters(repo.root, runtimeConfig)
+  if runtimeConfig.respectGitignore and repo.isGit and result.files.len > 0:
+    let ignored = gitIgnoredFiles(repo.root, result.files)
+    if ignored.len > 0:
+      for ignoredFile in ignored:
+        result.files = result.files.filterIt(it != ignoredFile)
