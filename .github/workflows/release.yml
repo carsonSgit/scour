@@ -1,11 +1,18 @@
 name: Release
 
-# Auto-release on every merge to main. git-cliff reads Conventional Commits to
-# compute the next semver (feat -> minor, fix/etc -> patch, breaking -> major),
-# the version is rewritten into source, CHANGELOG.md is updated, and a
-# multi-platform GitHub release is published — no manual tagging required.
+# Auto-release on every merge to main, with an explicit validation stage
+# before publication. git-cliff reads Conventional Commits to compute the
+# next semver (feat -> minor, fix/etc -> patch, breaking -> major), the
+# version is rewritten into source, CHANGELOG.md is updated, multi-platform
+# archives build and validate on all five runners, and only then is the
+# GitHub release published. A create-tag step precedes the actual build so
+# builds exercise the tagged commit; publication is retried securely.
 #
-# workflow_dispatch with an explicit `version` input forces that exact version.
+# workflow_dispatch with version input forces that exact version. If the
+# requested release exists completely, the workflow stops with should_release=false.
+# workflow_dispatch with mode=validate runs prepare/build/publish-validate without
+# writes: no commits, no tags, no publication. Retry of a partially built release
+# reuses that version as the target without a further bump.
 on:
   push:
     branches:
@@ -16,6 +23,11 @@ on:
         description: Exact version to release, bare semver such as 0.2.0 (overrides auto-detection)
         required: false
         type: string
+      mode:
+        description: Release mode - release (publish) or validate (build and verify only)
+        required: false
+        type: string
+        default: release
 
 permissions:
   contents: write
@@ -25,6 +37,9 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  validate_only: ${{ inputs.mode == 'validate' }}
+
 jobs:
   prepare:
     name: Prepare release
@@ -33,6 +48,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       sha: ${{ steps.commit.outputs.sha }}
       should_release: ${{ steps.resolve.outputs.should_release }}
+      tag: ${{ steps.releaseexists.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -59,7 +75,6 @@ jobs:
 
       - name: Resolve version and release decision
         id: resolve
-        if: steps.guard.outputs.skip != 'true'
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
@@ -70,16 +85,49 @@ jobs:
             next="$(git cliff --bumped-version)"
           fi
           echo "current=$current next=$next"
-          if [[ -z "$next" || "$next" == "$current" ]]; then
-            echo "No releasable change ($current -> $next); skipping."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          if [[ "$next" != "v"* ]]; then
+            echo "ERROR: invalid version '$next'; use bare semver such as 0.2.0" >&2
+            exit 2
+          fi
+          [[ "$next" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERROR: invalid version format: $next" >&2; exit 2; }
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Detect existing release/tag state
+        id: releaseexists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: v${{ steps.resolve.outputs.version }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bump version in source
-        if: steps.resolve.outputs.should_release == 'true'
+      - name: Stop when the release and its assets exist already
+        id: exists-check
+        if: steps.releaseexists.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: v${{ steps.resolve.outputs.version }}
+        run: |
+          expected=('')
+          expected+=("scour-${VERSION}-linux-x86_64.tar.gz" "scour-${VERSION}-linux-aarch64.tar.gz" "scour-${VERSION}-macos-x86_64.tar.gz" "scour-${VERSION}-macos-aarch64.tar.gz" "scour-${VERSION}-windows-x86_64.zip" "scour-${VERSION}-checksums.txt")
+          assets=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" --jq '.assets[].name' 2>/dev/null)
+          missing=0
+          for name in "${expected[@]}"; do
+            grep -Fqx "$name" <<<"$assets" || { echo "missing asset: $name" >&2; missing=$((missing+1)); }
+          done
+          if [[ "$missing" -eq 0 ]]; then
+            echo "Release ${VERSION} already has all assets; nothing to do." >&2
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Release ${VERSION} exists with $missing missing asset(s); will retry publication." >&2
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.resolve.outputs.should_release == 'true' && env.validate_only != 'true'
         run: bash scripts/bump_version.sh "${{ steps.resolve.outputs.version }}"
 
       - name: Update CHANGELOG and release notes
@@ -90,9 +138,9 @@ jobs:
           git cliff --tag "$TAG" --output CHANGELOG.md
           git cliff --tag "$TAG" --unreleased --strip all --output release-notes.md
 
-      - name: Commit and push bump
+      - name: Commit and push bump (skipped in validate mode)
         id: commit
-        if: steps.resolve.outputs.should_release == 'true'
+        if: steps.resolve.outputs.should_release == 'true' && env.validate_only != 'true'
         run: |
           version="${{ steps.resolve.outputs.version }}"
           git config user.name "github-actions[bot]"
@@ -102,13 +150,17 @@ jobs:
           git push origin HEAD:main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Upload release notes
-        if: steps.resolve.outputs.should_release == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-notes
-          path: release-notes.md
-          if-no-files-found: error
+      - name: Record sha (validate mode)
+        if: steps.resolve.outputs.should_release == 'true' && env.validate_only == 'true'
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag at the release commit (skipped in validate mode)
+        if: steps.resolve.outputs.should_release == 'true' && env.validate_only != 'true'
+        env:
+          TAG: v${{ steps.resolve.outputs.version }}
+        run: |
+          git tag -f "$TAG" "$GITHUB_SHA" -m "release ${TAG}"
+          git push -f origin "$TAG"
 
   build:
     name: Build ${{ matrix.target }}
@@ -142,13 +194,31 @@ jobs:
           nim-version: "2.2.10"
       - name: Build release binary
         run: nimble build -d:release -y
+      - name: Run core regression on this runner
+        run: nimble test -y
+      - name: Verify distribution contract locally
+        run: bash tests/test_distribution.sh
+      - name: Extract archive and run the real binary
+        if: runner.os != 'Windows'
+        env:
+          VERSION: v${{ needs.prepare.outputs.version }}
+        run: |
+          expected_version="scour version $VERSION"
+          mkdir -p verify
+          tar -czf "tmp-verify.tar.gz" scour
+          tar -xzf "tmp-verify.tar.gz" -C verify
+          version_out=$(verify/scour --version); echo "$version_out"
+          [[ "$version_out" == "$expected_version" ]] || { echo "installed binary version mismatch: $version_out" >&2; exit 1; }
+          verify/scour --help >/dev/null
+          verify/scour --scan ./tests --format json >/tmp/scour-check.json
+          test -s /tmp/scour-check.json
       - name: Package Unix archive
         if: runner.os != 'Windows'
         env:
           VERSION: v${{ needs.prepare.outputs.version }}
         run: |
           mkdir package
-          cp "${{ matrix.binary }}" README.md package/
+          cp scour README.md package/
           tar -czf "scour-${VERSION}-${{ matrix.target }}.tar.gz" -C package .
       - name: Package Windows archive
         if: runner.os == 'Windows'
@@ -157,8 +227,20 @@ jobs:
           VERSION: v${{ needs.prepare.outputs.version }}
         run: |
           New-Item -ItemType Directory -Path package
-          Copy-Item "${{ matrix.binary }}", README.md package/
+          Copy-Item scour README.md package/
           Compress-Archive -Path package/* -DestinationPath "scour-$env:VERSION-${{ matrix.target }}.zip"
+      - name: Win verify (extract archive, run binary)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: v${{ needs.prepare.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Path verify
+          Copy-Item scour README.md package/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path scour -DestinationPath verify/w.zip
+          Expand-Archive verify/w.zip -DestinationPath verify
+          & verify/scour.exe --version
+          & verify/scour.exe --help | Out-Null
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: scour-${{ matrix.target }}
@@ -171,6 +253,9 @@ jobs:
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Skip publishing in validate mode
+        if: env.validate_only == 'true'
+        run: echo "validate mode: no publication"; exit 0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
@@ -180,10 +265,36 @@ jobs:
         env:
           VERSION: v${{ needs.prepare.outputs.version }}
         run: sha256sum scour-* > "scour-${VERSION}-checksums.txt"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: dist
+        env:
+          VERSION: v${{ needs.prepare.outputs.version }}
+        run: sha256sum scour-* > "scour-${VERSION}-checksums.txt"
+      - name: Verify archive extraction and binary behavior from release assets
+        working-directory: dist
+        env:
+          VERSION: v${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p verify
+          tar -xzf "scour-${VERSION}-linux-x86_64.tar.gz" -C verify
+          verify/scour --version
+          verify/scour --help >/dev/null
+          verify/scour --scan ./verify --format json >/dev/null
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        if: env.validate_only != 'true'
         with:
           tag_name: v${{ needs.prepare.outputs.version }}
           target_commitish: ${{ needs.prepare.outputs.sha }}
           name: scour release v${{ needs.prepare.outputs.version }}
           body_path: dist/release-notes.md
           files: dist/scour-*
+      - name: Upload verified assets (validate mode only)
+        if: env.validate_only == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validated-dist
+          path: dist/scour-*
