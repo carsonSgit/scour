@@ -13,11 +13,24 @@ const
   ]
 
 type
-  CommandInventory = object
+  WorkspaceTargets = object
     packageScripts: Table[string, bool]
     makeTargets: Table[string, bool]
     justTargets: Table[string, bool]
     taskTargets: Table[string, bool]
+
+  CommandInventory = object
+    byDir: Table[string, WorkspaceTargets]
+    merged: WorkspaceTargets
+    sharedMode: bool
+
+proc yamlUnquote(value: string): string =
+  let text = value.strip()
+  if text.len >= 2 and ((text[0] == '"' and text[^1] == '"') or
+      (text[0] == '\'' and text[^1] == '\'')):
+    text[1 ..< text.high]
+  else:
+    text
 
 proc normalizeRepoPath(path: string): string =
   path.replace('\\', '/')
@@ -28,6 +41,14 @@ proc parentDir(path: string): string =
 proc fileName(path: string): string =
   let split = path.normalizeRepoPath().splitFile
   split.name & split.ext
+
+proc workspaceKey(dir: string): string =
+  var trimmed = dir.normalizeRepoPath().strip().replace("./", "")
+  trimmed = trimmed.strip(chars = {'/'}, leading = false, trailing = true)
+  if trimmed == ".":
+    ""
+  else:
+    trimmed
 
 proc joinRepoPath(dir, name: string): string =
   if dir.len == 0:
@@ -122,18 +143,28 @@ proc dependencyWarning(file, lockfile: string): Issue =
     file.fileName() & " changed without its existing " & lockfile.fileName() & "."
   )
 
+type
+  EnvDocuments = object
+    byDir: Table[string, Table[string, bool]]
+    merged: Table[string, bool]
+
 proc loadEnvNames(root: string; files: openArray[string];
-    exampleNames: openArray[string]): Table[string, bool] =
+    exampleNames: openArray[string]): EnvDocuments =
   for file in files:
     if file.fileName() notin exampleNames:
       continue
+    let workspace = workspaceKey(parentDir(file))
+    if not result.byDir.hasKey(workspace):
+      result.byDir[workspace] = initTable[string, bool]()
     for line in safeRead(root, file).splitLines():
       let trimmed = line.strip()
       if trimmed.len == 0 or trimmed.startsWith("#"):
         continue
       let equals = trimmed.find('=')
       if equals > 0:
-        result[trimmed[0 ..< equals].strip()] = true
+        let name = trimmed[0 ..< equals].strip()
+        result.byDir[workspace][name] = true
+        result.merged[name] = true
 
 proc isEnvStart(ch: char): bool =
   ch == '_' or (ch >= 'A' and ch <= 'Z')
@@ -203,9 +234,30 @@ proc scanQuotedEnv(
 
 proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[
     string]; runtimeConfig: RuntimeConfig) =
-  let documented = loadEnvNames(plan.repo.root, files,
+  let documents = loadEnvNames(plan.repo.root, files,
       runtimeConfig.envExampleFiles)
   for candidate in plan.candidates:
+    var documented = documents.merged
+    if not runtimeConfig.sharedCommands:
+      var workspace = workspaceKey(parentDir(candidate))
+      while workspace.len > 0 and not documents.byDir.hasKey(workspace):
+        let slash = workspace.find('/')
+        workspace = if slash > 0: workspace[0 ..< slash] else: ""
+      let directory =
+        if documents.byDir.hasKey(workspace): workspace else: ""
+      if documents.byDir.hasKey(directory):
+        documented = documents.byDir[directory]
+  for candidate in plan.candidates:
+    var documented = documents.merged
+    if not runtimeConfig.sharedCommands:
+      var workspace = workspaceKey(parentDir(candidate))
+      while workspace.len > 0 and not documents.byDir.hasKey(workspace):
+        let slash = workspace.find('/')
+        workspace = if slash > 0: workspace[0 ..< slash] else: ""
+      let directory =
+        if documents.byDir.hasKey(workspace): workspace else: ""
+      if documents.byDir.hasKey(directory):
+        documented = documents.byDir[directory]
     let text = safeRead(plan.repo.root, candidate, plan.mode, plan.stats)
     if text.len == 0:
       continue
@@ -252,60 +304,105 @@ proc scanEnvDrift(result: var seq[Issue]; plan: ScanPlan; files: openArray[
     else:
       discard
 
-proc addPackageScripts(inventory: var CommandInventory; root, file: string) =
-  try:
-    let parsed = parseJson(safeRead(root, file))
-    if parsed.kind == JObject and parsed.hasKey("scripts") and parsed[
-        "scripts"].kind == JObject:
-      for key in parsed["scripts"].keys:
-        inventory.packageScripts[key] = true
-  except JsonParsingError, IOError, OSError:
-    discard
+proc touchWorkspace(inventory: var CommandInventory;
+    workspace: string): var WorkspaceTargets =
+  if not inventory.byDir.hasKey(workspace):
+    inventory.byDir[workspace] = WorkspaceTargets()
+  result = inventory.byDir[workspace]
 
-proc addMakeTargets(inventory: var CommandInventory; root, file: string) =
-  for line in safeRead(root, file).splitLines():
+proc addPackageScripts(inventory: var CommandInventory; root, file: string;
+    mode = scanAll) =
+  var parsed: JsonNode
+  try:
+    parsed = parseJson(safeRead(root, file, mode))
+  except JsonParsingError, IOError, OSError:
+    return
+  if not (parsed.kind == JObject and parsed.hasKey("scripts") and
+      parsed["scripts"].kind == JObject):
+    return
+  let dir = workspaceKey(parentDir(file))
+  discard touchWorkspace(inventory, dir)
+  for key in parsed["scripts"].keys:
+    inventory.byDir[dir].packageScripts[key] = true
+    inventory.merged.packageScripts[key] = true
+
+proc addMakeTargets(inventory: var CommandInventory; root, file: string;
+    mode = scanAll) =
+  var added = false
+  var workspace = WorkspaceTargets()
+  for line in safeRead(root, file, mode).splitLines():
     if line.len == 0 or line[0].isSpaceAscii() or line.startsWith("."):
       continue
     let colon = line.find(':')
     if colon > 0 and not line[0 ..< colon].contains("="):
+      added = true
       for target in line[0 ..< colon].splitWhitespace():
-        inventory.makeTargets[target] = true
+        workspace.makeTargets[target] = true
+        inventory.merged.makeTargets[target] = true
+  if added:
+    let dir = workspaceKey(parentDir(file))
+    discard touchWorkspace(inventory, dir)
+    for target, _ in workspace.makeTargets:
+      inventory.byDir[dir].makeTargets[target] = true
 
-proc addJustTargets(inventory: var CommandInventory; root, file: string) =
-  for line in safeRead(root, file).splitLines():
+proc addJustTargets(inventory: var CommandInventory; root, file: string;
+    mode = scanAll) =
+  var added = false
+  var workspace = WorkspaceTargets()
+  for line in safeRead(root, file, mode).splitLines():
     let trimmed = line.strip()
     if trimmed.len == 0 or trimmed.startsWith("#") or trimmed.startsWith("@") or
         trimmed.startsWith("set "):
       continue
     let name = trimmed.splitWhitespace()[0].split(":")[0]
     if name.len > 0 and name[0].isAlphaAscii():
-      inventory.justTargets[name] = true
+      added = true
+      workspace.justTargets[name] = true
+      inventory.merged.justTargets[name] = true
+  if added:
+    let dir = workspaceKey(parentDir(file))
+    discard touchWorkspace(inventory, dir)
+    for target, _ in workspace.justTargets:
+      inventory.byDir[dir].justTargets[target] = true
 
-proc addTaskTargets(inventory: var CommandInventory; root, file: string) =
+proc addTaskTargets(inventory: var CommandInventory; root, file: string;
+    mode = scanAll) =
   var inTasks = false
-  for line in safeRead(root, file).splitLines():
+  var added = false
+  var workspace = WorkspaceTargets()
+  let text = safeRead(root, file, mode)
+  for line in text.splitLines():
     if line.strip() == "tasks:":
       inTasks = true
       continue
     if inTasks:
       if line.len > 0 and not line[0].isSpaceAscii():
-        break
+        if line.strip() != "tasks:":
+          break
       let stripped = line.strip()
       if stripped.endsWith(":") and not stripped.startsWith("-"):
-        inventory.taskTargets[stripped[0 .. ^2]] = true
+        added = true
+        workspace.taskTargets[stripped[0 .. ^2]] = true
+        inventory.merged.taskTargets[stripped[0 .. ^2]] = true
+  if added:
+    let dir = workspaceKey(parentDir(file))
+    discard touchWorkspace(inventory, dir)
+    for target, _ in workspace.taskTargets:
+      inventory.byDir[dir].taskTargets[target] = true
 
-proc commandInventory(root: string; files: openArray[
-    string]): CommandInventory =
+proc commandInventory(root: string; files: openArray[string];
+    sharedMode = false; mode = scanAll): CommandInventory =
+  result.sharedMode = sharedMode
   for file in files:
     case file.fileName()
     of "package.json":
-      result.addPackageScripts(root, file)
+      result.addPackageScripts(root, file, mode)
     of "Makefile", "makefile":
-      result.addMakeTargets(root, file)
+      result.addMakeTargets(root, file, mode)
     of "justfile", "Justfile":
-      result.addJustTargets(root, file)
+      result.addJustTargets(root, file, mode)
     of "Taskfile.yml", "Taskfile.yaml":
-      result.addTaskTargets(root, file)
+      result.addTaskTargets(root, file, mode)
     else:
       discard
 
@@ -349,19 +446,28 @@ proc commandTarget(command: string): tuple[kind: string; target: string] =
     discard
   ("", "")
 
-proc isValid(command: string; inventory: CommandInventory): bool =
+proc isValid(command: string; inventory: CommandInventory;
+    workspace = ""): bool =
   let target = command.commandTarget()
-  case target.kind
-  of "package":
-    inventory.packageScripts.hasKey(target.target)
-  of "make":
-    inventory.makeTargets.hasKey(target.target)
-  of "just":
-    inventory.justTargets.hasKey(target.target)
-  of "task":
-    inventory.taskTargets.hasKey(target.target)
-  else:
-    true
+  if target.target.contains('$') or target.target.startsWith("~("):
+    return true
+  if target.kind notin ["package", "make", "just", "task"]:
+    return true
+  var resolved = inventory.merged
+  if not inventory.sharedMode:
+    if inventory.byDir.hasKey(workspace):
+      resolved = inventory.byDir[workspace]
+    elif inventory.byDir.hasKey(""):
+      resolved = inventory.byDir[""]
+    else:
+      resolved = WorkspaceTargets()
+  let result = case target.kind
+    of "package": resolved.packageScripts.hasKey(target.target)
+    of "make": resolved.makeTargets.hasKey(target.target)
+    of "just": resolved.justTargets.hasKey(target.target)
+    of "task": resolved.taskTargets.hasKey(target.target)
+    else: true
+  result
 
 proc commandPrefix(line: string): string =
   var text = line.strip()
@@ -394,12 +500,25 @@ proc scanReadmeCommandDrift(result: var seq[Issue]; plan: ScanPlan;
         continue
       if (not inFence or shellFence) and line.isCommandCandidate():
         let command = line.commandPrefix()
-        if not command.isValid(inventory):
+        if not command.isValid(inventory, workspaceKey(parentDir(file))):
           result.add(commandWarning("readme-command-drift", file,
               lineNumber, line.find(command.strip()) + 1, command))
 
-proc workflowRunCommands(text: string): seq[tuple[line: int; column: int;
-    command: string]] =
+type PendingCommand* = tuple[line: int; column: int; command: string;
+    workingDir: string]
+
+proc yamlWorkingDirectory(lines: seq[string]; runIndex: int): string =
+  for index in runIndex + 1 ..< min(runIndex + 12, lines.len):
+    let line = lines[index]
+    let indent = len(line) - len(line.strip(chars = {' '}))
+    if indent == 0 and line.strip().startsWith("- "):
+      break
+    let colon = line.find(":")
+    if colon > 0 and line[0 ..< colon].strip() == "working-directory":
+      return yamlUnquote(line[colon + 1 .. ^1])
+  ""
+
+proc workflowRunCommands(text: string): seq[PendingCommand] =
   let lines = text.splitLines()
   var i = 0
   while i < lines.len:
@@ -409,28 +528,69 @@ proc workflowRunCommands(text: string): seq[tuple[line: int; column: int;
       stripped = stripped[2 .. ^1].strip()
     let runAt = line.find("run:")
     if runAt >= 0 and stripped.startsWith("run:"):
-      let after = stripped[4 .. ^1].strip()
+      let after = yamlUnquote(stripped[4 .. ^1])
       if after in ["|", ">"]:
         inc i
         while i < lines.len and (lines[i].len == 0 or lines[i][0].isSpaceAscii()):
           if lines[i].isCommandCandidate():
             let command = lines[i].commandPrefix()
             result.add((line: i + 1, column: lines[i].find(command.strip()) + 1,
-                command: command))
+                command: command, workingDir: yamlWorkingDirectory(lines, i)))
           inc i
         continue
       elif after.len > 0:
-        result.add((line: i + 1, column: line.find(after) + 1, command: after))
+        result.add((line: i + 1, column: line.find(after) + 1, command: after,
+            workingDir: yamlWorkingDirectory(lines, i)))
     inc i
+
+proc gitlabScriptCommands(text: string): seq[PendingCommand] =
+  let lines = text.splitLines()
+  var section = ""
+  for index, line in lines:
+    let indent = len(line) - len(line.strip(chars = {' '}))
+    let trimmed = line.strip()
+    for key in ["script:", "before_script:", "after_script:"]:
+      if trimmed.startsWith(key):
+        section = key[0 ..< key.len - 1]
+        break
+    if indent == 0 and trimmed.endsWith(":") and trimmed.len > 1:
+      section = ""
+    if section.len == 0:
+      continue
+    if not trimmed.startsWith("- "):
+      continue
+    var command = trimmed[2 .. ^1]
+    if command.startswith("|") or command.startswith(">"):
+      continue
+    command = yamlUnquote(command)
+    var workingDir = ""
+    let parts = command.splitWhitespace()
+    if parts.len >= 4 and parts[0] == "cd" and (parts[2] == "&&" or
+        parts[2] == ";"):
+      workingDir = workspaceKey(parts[1])
+      if parts.len > 4:
+        command = yamlUnquote(parts[3 .. ^1].join(" "))
+      else:
+        continue
+    if command.len == 0 or not command.isCommandCandidate():
+      continue
+    result.add((line: index + 1, column: line.find(command.strip()) + 1,
+        command: command, workingDir: workingDir))
 
 proc scanCiCommandDrift(result: var seq[Issue]; plan: ScanPlan;
     inventory: CommandInventory) =
   for file in repositoryFiles(plan):
-    if not (file.startsWith(".github/workflows/") and (file.endsWith(".yml") or
-        file.endsWith(".yaml"))):
-      continue
-    for command in workflowRunCommands(safeRead(plan.repo.root, file, plan.mode, plan.stats)):
-      if command.command.isCommandCandidate() and not command.command.isValid(inventory):
+    let pending =
+      if file.startsWith(".github/workflows/") and (file.endsWith(".yml") or
+          file.endsWith(".yaml")):
+        workflowRunCommands(safeRead(plan.repo.root, file, plan.mode, plan.stats))
+      elif file == ".gitlab-ci.yml":
+        gitlabScriptCommands(safeRead(plan.repo.root, file, plan.mode, plan.stats))
+      else:
+        @[]
+    for command in pending:
+      if command.command.isCommandCandidate() and not command.command.isValid(
+          inventory, workspaceKey(command.workingDir)):
         result.add(commandError("ci-command-drift", file,
             command.line, command.column, command.command))
 
@@ -542,7 +702,8 @@ proc scanCrossReference*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[I
   let contextFiles =
     if plan.repo.isGit: files
     else: collectCandidates(plan.repo, scanAll, CliOptions()).files
-  let inventory = commandInventory(plan.repo.root, contextFiles)
+  let inventory = commandInventory(plan.repo.root, contextFiles,
+      runtimeConfig.sharedCommands, plan.mode)
   result.scanEnvDrift(plan, contextFiles, runtimeConfig)
   result.scanReadmeCommandDrift(plan, inventory)
   result.scanCiCommandDrift(plan, inventory)
