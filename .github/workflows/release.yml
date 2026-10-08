@@ -203,7 +203,7 @@ jobs:
         env:
           VERSION: v${{ needs.prepare.outputs.version }}
         run: |
-          expected_version="scour version $VERSION"
+          expected_version="scour version ${VERSION#v}"
           mkdir -p verify
           tar -czf "tmp-verify.tar.gz" scour
           tar -xzf "tmp-verify.tar.gz" -C verify
@@ -236,8 +236,7 @@ jobs:
           VERSION: v${{ needs.prepare.outputs.version }}
         run: |
           New-Item -ItemType Directory -Path verify
-          Copy-Item scour README.md package/ -ErrorAction SilentlyContinue
-          Compress-Archive -Path scour -DestinationPath verify/w.zip
+          Compress-Archive -Path scour, README.md, LICENSE -DestinationPath verify/w.zip
           Expand-Archive verify/w.zip -DestinationPath verify
           & verify/scour.exe --version
           & verify/scour.exe --help | Out-Null
