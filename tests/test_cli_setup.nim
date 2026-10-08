@@ -1196,7 +1196,7 @@ suite "command behavior":
     initFixtureRepo("dirty", root)
     writeFile(root / ".env", "TOKEN=value\n")
     writeFile(root / ".github/workflows/ci.yml",
-        "steps:\n  - run: npm run missing\n  - uses: actions/checkout@v4\n")
+        "jobs:\n  test:\n    steps:\n      - run: npm run missing\n      - uses: actions/checkout@v4\n")
     createDir(root / "rust")
     writeFile(root / "rust/Cargo.toml", "[package]\nname = \"app\"\n")
     writeFile(root / "rust/Cargo.lock", "# lock\n")
