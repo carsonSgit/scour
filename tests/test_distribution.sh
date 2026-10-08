@@ -192,3 +192,15 @@ if bash "$root/scripts/bump_version.sh" "invalid" 1> /dev/null 2> "$tmp/bump.err
   fail "invalid version accepted by bump_version.sh"
 fi
 assert_contains "$tmp/bump.err" "not a bare X.Y.Z semver"
+
+# packaged archive includes LICENSE alongside the binary
+: > "$tmp/output"
+if "$root/scripts/run-action.sh" >/dev/null 2>&1; then true; fi
+script="$(grep -E '^     *- name: Package Unix archive' "$root/.github/workflows/release.yml" | wc -l)"
+[[ "$script" -eq 1 ]] || fail "unix packaging step missing"
+grep -qE 'cp scour README.md LICENSE package/' "$root/.github/workflows/release.yml" \
+  || fail "unix packaging is missing LICENSE"
+grep -qE 'Copy-Item scour README.md LICENSE package/' "$root/.github/workflows/release.yml" \
+  || fail "windows packaging is missing LICENSE"
+grep -q 'verify/LICENSE' "$root/.github/workflows/release.yml" \
+  || fail "publish validation does not assert LICENSE presence"

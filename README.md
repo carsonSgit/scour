@@ -108,6 +108,8 @@ further version bump. Invalid versions fail during prepare before any write.
 Before tagging by hand instead, run the workflow with `mode: validate` to validate
 packaging on all five hosted runners.
 
+Scour is MIT-licensed (see `LICENSE`).
+
 ## CI Output
 
 Scour emits human-readable text by default. CI integrations can select stable JSON
