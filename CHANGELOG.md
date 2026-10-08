@@ -3,6 +3,12 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.4.6] - 2026-10-08
+
+### Other
+- Reference issue numbers without repo-prefix assumptions in loop prompts
+- Rename loop branch scheme to feature/scour-N and update guide
+
 ## [0.4.5] - 2026-10-07
 
 ### Other
