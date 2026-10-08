@@ -1,18 +1,16 @@
 export function Footer() {
   return (
-    <footer className="flex items-center justify-between border-t border-edge px-5 py-5 sm:px-7">
-      <span className="font-mono text-xs text-faint">scour v0.2.0</span>
-      <span className="text-xs text-faint">
-        MIT ·{' '}
-        <a
-          href="https://github.com/carsonSgit/scour"
-          target="_blank"
-          rel="noreferrer"
-          className="transition-colors hover:text-muted"
-        >
-          GitHub ↗
-        </a>
-      </span>
+    <footer className="flex flex-col items-center gap-2.5 border-t border-edge px-7 py-5 text-[13px] text-muted sm:flex-row sm:justify-between md:px-14">
+      <span className="text-[15px] font-bold tracking-[-0.03em] text-primary">scour</span>
+      <span className="font-mono text-[12px] tracking-wide">CLI · GitHub Action · MIT licensed</span>
+      <a
+        href="https://github.com/carsonSgit/scour"
+        target="_blank"
+        rel="noreferrer"
+        className="transition-colors hover:text-primary"
+      >
+        GitHub ↗
+      </a>
     </footer>
   )
 }

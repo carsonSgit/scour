@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Win } from './Win'
 import {
   CURSOR_HIDE_MS,
   CURSOR_SHOW_MS,
@@ -6,6 +7,8 @@ import {
   script,
 } from '../lib/terminalScript'
 
+/* The live scan window in the hero: the animated typewriter script inside the
+   shared Win chrome, with a static summary strip pinned under the body. */
 export function TerminalDemo() {
   const [visibleCount, setVisibleCount] = useState(0)
   const [cursorVisible, setCursorVisible] = useState(false)
@@ -26,46 +29,36 @@ export function TerminalDemo() {
   }, [runId])
 
   return (
-    <section className="px-5 pb-16 sm:px-7">
-      <div className="mx-auto w-full max-w-[640px] overflow-hidden rounded-md border border-edge">
-        <div className="flex h-9 items-center bg-surface-raised px-3.5">
-          <div className="flex gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#d4d4d8] dark:bg-[#3a3a3a]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#d4d4d8] dark:bg-[#3a3a3a]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#d4d4d8] dark:bg-[#3a3a3a]" />
+    <Win title="~/my-project">
+      <div className="min-h-[188px] overflow-x-auto px-[18px] py-4">
+        {script.map((line, index) => (
+          <div
+            key={index}
+            className={`whitespace-pre font-mono text-[12.5px] leading-[2.1] transition-opacity duration-[120ms] ${
+              index < visibleCount ? 'opacity-100' : 'opacity-0'
+            }`}
+          >
+            {line.segments.map((segment, s) => (
+              <span key={s} className={segment.className}>
+                {segment.text}
+              </span>
+            ))}
+            {index === 0 && cursorVisible && (
+              <span className="animate-blink text-faint">▊</span>
+            )}
           </div>
-          <span className="flex-1 text-center font-mono text-[11px] text-faint">~/myproject</span>
-          <div className="w-[34px]" />
-        </div>
-        <div className="min-h-[160px] overflow-x-auto bg-surface px-[18px] py-5">
-          {script.map((line, index) => (
-            <div
-              key={index}
-              className={`whitespace-pre font-mono text-xs leading-loose transition-opacity duration-[120ms] ${
-                index < visibleCount ? 'opacity-100' : 'opacity-0'
-              }`}
-            >
-              {line.segments.map((segment, s) => (
-                <span key={s} className={segment.className}>
-                  {segment.text}
-                </span>
-              ))}
-              {index === 0 && cursorVisible && (
-                <span className="animate-blink text-faint">▊</span>
-              )}
-            </div>
-          ))}
-          <div className="flex justify-end pt-2">
-            <button
-              type="button"
-              onClick={() => setRunId((id) => id + 1)}
-              className="font-mono text-[11px] text-faint transition-colors hover:text-muted"
-            >
-              ↺ replay
-            </button>
-          </div>
-        </div>
+        ))}
       </div>
-    </section>
+      <div className="flex items-center justify-between border-t border-edge-muted px-[18px] py-3">
+        <span className="font-mono text-[12px] text-muted">4 findings</span>
+        <button
+          type="button"
+          onClick={() => setRunId((id) => id + 1)}
+          className="font-mono text-[11px] text-faint transition-colors hover:text-muted"
+        >
+          ↺ replay
+        </button>
+      </div>
+    </Win>
   )
 }
