@@ -234,7 +234,7 @@ Check Nim 2.2.10+, Nimble, and prerequisites. Install missing local tools throug
 Use uv/ruff/mypy for Python. Apply $code-review against {base}, using this supplied spec; no tracker setup or new ticket is needed.
 Run scope/review gates at {GATES} against {base}. Answer every review-standards.md item with counts. A failed scope budget requires a proposed seam split.
 {"Review: do not edit or commit; your sandbox permits cache/temp writes for rerunning tests, and the controller verifies the tree is untouched afterward." if review else "Commit only this issue work to the current branch after verification and review."}
-Implementation commit subjects start QRTX-00: and reference this GitHub issue number.
+Implementation commit subjects reference this GitHub issue number in a (#NN) suffix, without repo-name prefixes.
 Preserve untracked plans/ci-readiness handoff files; do not stage or modify them.
 No push, MR, issue edit/comment/closure, release, or hosted pipeline is authorized. If required, return blocked with the exact action/approval needed.
 Never replace live evidence with mocks or call partial work complete. Return JSON with exact acceptance strings and observed evidence.
@@ -294,7 +294,7 @@ def execute(items: list[Item]) -> None:
             if state["pending"] is None:
                 base = run("git", "rev-parse", "HEAD")
                 target = state["branch"]
-                branch = f"feature/qrtx-00/scour-{number}"
+                branch = f"feature/scour-{number}"
                 if run("git", "branch", "--list", branch):
                     raise RuntimeError(f"Issue branch already exists: {branch}")
                 state["pending"] = {
