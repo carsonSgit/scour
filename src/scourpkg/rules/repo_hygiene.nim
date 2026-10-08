@@ -1,6 +1,6 @@
 import algorithm, os, osproc, sequtils, strutils, tables
 
-import ../config, ../issues, ../rule_issue, ../scan_plan
+import ../config, ../files, ../issues, ../rule_issue, ../scan_plan
 
 const Lockfiles = [
   "package-lock.json",
@@ -138,9 +138,13 @@ proc scanTrackedEnvFiles(result: var seq[Issue]; files: openArray[string];
       ))
 
 proc scanRepoHygiene*(plan: ScanPlan; runtimeConfig = defaultConfig()): seq[Issue] =
-  let files = repositoryFiles(plan)
+  let files =
+    if plan.repo.isGit: repositoryFiles(plan)
+    else: collectCandidates(plan.repo, scanAll, CliOptions()).files
   result.scanDuplicateLockfiles(files)
   result.scanDockerignoreMissing(files)
   result.scanGeneratedFiles(files)
   result.scanTrackedEnvFiles(files, runtimeConfig)
+  result = result.filterIt((plan.repo.isGit or it.file in plan.candidates) and
+      passesConfiguredFilters(plan.repo.root, it.file, runtimeConfig))
   result = result.applyRuleOverrides(runtimeConfig)

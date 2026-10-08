@@ -56,7 +56,7 @@ proc uniqueSorted(paths: seq[string]): seq[string] =
   result = paths.deduplicate()
   result.sort()
 
-proc passesConfiguredFilters(root, relative: string; runtimeConfig: RuntimeConfig): bool =
+proc passesConfiguredFilters*(root, relative: string; runtimeConfig: RuntimeConfig): bool =
   if relative.pathIgnored(runtimeConfig.ignorePaths):
     return false
   if runtimeConfig.maxFileSize > 0:
@@ -132,15 +132,16 @@ proc collectCandidates*(repo: RepoContext; mode: ScanMode; options: CliOptions; 
         if attempt.ok:
           result.baseRef = base
           result.files = attempt.files
-          return
+          break
 
-      let staged = tryFilesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR")
-      if staged.ok and staged.files.len > 0:
-        result.baseRef = "staged"
-        result.files = staged.files
-      else:
-        result.baseRef = "all"
-        result.files = allFiles(repo.root)
+      if result.baseRef.len == 0:
+        let staged = tryFilesFromGitDiff(repo.root, "diff --cached --name-only --diff-filter=ACMR")
+        if staged.ok and staged.files.len > 0:
+          result.baseRef = "staged"
+          result.files = staged.files
+        else:
+          result.baseRef = "all"
+          result.files = allFiles(repo.root)
   of scanAll:
     result.files = allFiles(repo.root)
   of scanExplicitPaths:
