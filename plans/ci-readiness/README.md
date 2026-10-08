@@ -12,27 +12,27 @@ P0 marks launch blockers. P1 marks adoption and supported-runtime work; finish a
 
 | Draft | Work | Priority | Effort | Dependencies | Status |
 |---|---|---|---|---|---|
-| [001](001-apply-scan-exclusions-and-size-filters-consistently.md) | [Apply scan exclusions and size filters consistently](https://github.com/carsonSgit/scour/issues/31) | P0 | S | None | TODO |
-| [002](002-define-deterministic-revision-selection-for-ci.md) | [Define deterministic revision selection for CI](https://github.com/carsonSgit/scour/issues/32) | P0 | M | 001 | TODO |
-| [003](003-preserve-git-filenames-with-nul-delimited-enumeration.md) | [Preserve filenames with NUL-delimited Git enumeration](https://github.com/carsonSgit/scour/issues/33) | P0 | S | None | TODO |
-| [004](004-validate-toml-and-implement-accepted-scan-settings.md) | [Validate TOML and implement accepted scan settings](https://github.com/carsonSgit/scour/issues/34) | P0 | M | 001 | TODO |
-| [005](005-bound-filesystem-reads-and-expose-incomplete-scans.md) | [Bound filesystem reads and expose incomplete scans](https://github.com/carsonSgit/scour/issues/35) | P0 | M | 001, 004 | TODO |
-| [006](006-read-staged-scans-from-the-git-index.md) | [Read staged scans from the Git index](https://github.com/carsonSgit/scour/issues/36) | P1 | M | 003, 005 | TODO |
-| [007](007-scope-drift-checks-to-workspaces-and-parse-ci-command-context.md) | [Scope drift checks to workspaces and parse CI command context](https://github.com/carsonSgit/scour/issues/37) | P1 | L | 001, 004 | TODO |
-| [008](008-version-machine-reports-and-include-scan-coverage.md) | [Version machine reports and include scan coverage](https://github.com/carsonSgit/scour/issues/38) | P1 | M | 002, 005 | TODO |
-| [009](009-add-opt-in-fix-planning-and-patch-application.md) | [Add opt-in fix planning and patch application](https://github.com/carsonSgit/scour/issues/39) | P0 | L | 005, 008 | TODO |
-| [010](010-implement-the-first-bounded-cleanup-rules.md) | [Implement the first bounded cleanup rules](https://github.com/carsonSgit/scour/issues/40) | P0 | L | 009 | TODO |
-| [011](011-deliver-cleanup-patches-through-ci-without-write-credentials.md) | [Deliver cleanup patches through CI without write credentials](https://github.com/carsonSgit/scour/issues/41) | P0 | M | 009, 010, 008 | TODO |
-| [012](012-make-the-github-action-reproducible-and-preserve-failures.md) | [Make the GitHub Action reproducible and preserve failures](https://github.com/carsonSgit/scour/issues/42) | P0 | M | 002, 008 | TODO |
-| [013](013-ship-gitlab-and-generic-ci-jobs.md) | [Ship jobs for GitLab and generic CI](https://github.com/carsonSgit/scour/issues/45) | P0 | M | 002, 011, 012, 016 | TODO |
-| [014](014-export-gitlab-code-quality-and-sarif-reports.md) | [Export reports for GitLab Code Quality and SARIF](https://github.com/carsonSgit/scour/issues/46) | P1 | M | 008 | TODO |
-| [015](015-add-baseline-adoption-and-scoped-finding-suppressions.md) | [Add baseline adoption and scoped finding suppressions](https://github.com/carsonSgit/scour/issues/47) | P1 | M | 008 | TODO |
-| [016](016-establish-supported-runtimes-and-a-portable-ci-distribution.md) | [Establish supported runtimes and a portable CI distribution](https://github.com/carsonSgit/scour/issues/44) | P1 | M | 017 | TODO |
-| [017](017-gate-releases-on-actual-artifact-validation.md) | [Gate releases on actual artifact validation](https://github.com/carsonSgit/scour/issues/43) | P0 | M | None | TODO |
-| [018](018-make-release-publication-retryable-and-document-its-trigger.md) | [Make release publication retryable and document its trigger](https://github.com/carsonSgit/scour/issues/48) | P0 | M | 017 | TODO |
-| [019](019-include-the-declared-mit-license-in-packages.md) | [Include the declared MIT license in packages](https://github.com/carsonSgit/scour/issues/49) | P1 | S | None | TODO |
-| [020](020-validate-rule-precision-across-supported-languages.md) | [Validate rule precision across supported languages](https://github.com/carsonSgit/scour/issues/50) | P1 | M | None | TODO |
-| [021](021-publish-and-test-the-user-onboarding-contract.md) | [Publish and test the user onboarding contract](https://github.com/carsonSgit/scour/issues/51) | P0 | M | 002, 010, 011, 012, 013, 016, 018, 019, 020 | TODO |
+| [001](001-apply-scan-exclusions-and-size-filters-consistently.md) | [Apply scan exclusions and size filters consistently](https://github.com/carsonSgit/scour/issues/31) | P0 | S | None | PR |
+| [002](002-define-deterministic-revision-selection-for-ci.md) | [Define deterministic revision selection for CI](https://github.com/carsonSgit/scour/issues/32) | P0 | M | 001 | PR |
+| [003](003-preserve-git-filenames-with-nul-delimited-enumeration.md) | [Preserve filenames with NUL-delimited Git enumeration](https://github.com/carsonSgit/scour/issues/33) | P0 | S | None | PR |
+| [004](004-validate-toml-and-implement-accepted-scan-settings.md) | [Validate TOML and implement accepted scan settings](https://github.com/carsonSgit/scour/issues/34) | P0 | M | 001 | PR |
+| [005](005-bound-filesystem-reads-and-expose-incomplete-scans.md) | [Bound filesystem reads and expose incomplete scans](https://github.com/carsonSgit/scour/issues/35) | P0 | M | 001, 004 | PR |
+| [006](006-read-staged-scans-from-the-git-index.md) | [Read staged scans from the Git index](https://github.com/carsonSgit/scour/issues/36) | P1 | M | 003, 005 | PR |
+| [007](007-scope-drift-checks-to-workspaces-and-parse-ci-command-context.md) | [Scope drift checks to workspaces and parse CI command context](https://github.com/carsonSgit/scour/issues/37) | P1 | L | 001, 004 | PR |
+| [008](008-version-machine-reports-and-include-scan-coverage.md) | [Version machine reports and include scan coverage](https://github.com/carsonSgit/scour/issues/38) | P1 | M | 002, 005 | PR |
+| [009](009-add-opt-in-fix-planning-and-patch-application.md) | [Add opt-in fix planning and patch application](https://github.com/carsonSgit/scour/issues/39) | P0 | L | 005, 008 | PR |
+| [010](010-implement-the-first-bounded-cleanup-rules.md) | [Implement the first bounded cleanup rules](https://github.com/carsonSgit/scour/issues/40) | P0 | L | 009 | PR |
+| [011](011-deliver-cleanup-patches-through-ci-without-write-credentials.md) | [Deliver cleanup patches through CI without write credentials](https://github.com/carsonSgit/scour/issues/41) | P0 | M | 009, 010, 008 | PR |
+| [012](012-make-the-github-action-reproducible-and-preserve-failures.md) | [Make the GitHub Action reproducible and preserve failures](https://github.com/carsonSgit/scour/issues/42) | P0 | M | 002, 008 | PR |
+| [013](013-ship-gitlab-and-generic-ci-jobs.md) | [Ship jobs for GitLab and generic CI](https://github.com/carsonSgit/scour/issues/45) | P0 | M | 002, 011, 012, 016 | PR (partial: GitLab hosted run pending) |
+| [014](014-export-gitlab-code-quality-and-sarif-reports.md) | [Export reports for GitLab Code Quality and SARIF](https://github.com/carsonSgit/scour/issues/46) | P1 | M | 008 | PR |
+| [015](015-add-baseline-adoption-and-scoped-finding-suppressions.md) | [Add baseline adoption and scoped finding suppressions](https://github.com/carsonSgit/scour/issues/47) | P1 | M | 008 | PR |
+| [016](016-establish-supported-runtimes-and-a-portable-ci-distribution.md) | [Establish supported runtimes and a portable CI distribution](https://github.com/carsonSgit/scour/issues/44) | P1 | M | 017 | PR (partial: image builds, musl measurement pending) |
+| [017](017-gate-releases-on-actual-artifact-validation.md) | [Gate releases on actual artifact validation](https://github.com/carsonSgit/scour/issues/43) | P0 | M | None | PR |
+| [018](018-make-release-publication-retryable-and-document-its-trigger.md) | [Make release publication retryable and document its trigger](https://github.com/carsonSgit/scour/issues/48) | P0 | M | 017 | PR |
+| [019](019-include-the-declared-mit-license-in-packages.md) | [Include the declared MIT license in packages](https://github.com/carsonSgit/scour/issues/49) | P1 | S | None | PR |
+| [020](020-validate-rule-precision-across-supported-languages.md) | [Validate rule precision across supported languages](https://github.com/carsonSgit/scour/issues/50) | P1 | M | None | PR |
+| [021](021-publish-and-test-the-user-onboarding-contract.md) | [Publish and test the user onboarding contract](https://github.com/carsonSgit/scour/issues/51) | P0 | M | 002, 010, 011, 012, 013, 016, 018, 019, 020 | PR (partial: hosted artifact runs pending) |
 
 ## Observed verification
 
