@@ -1,4 +1,4 @@
-import os, strutils, sets, tables
+import os, strutils, sets
 
 import errors, issues, rule_catalog, scan_plan
 
@@ -27,7 +27,7 @@ proc defaultConfig*(): RuntimeConfig =
   RuntimeConfig(
     rules: @[],
     ignorePaths: @[],
-    maxFileSize: 0,
+    maxFileSize: 1024 * 1024,
     envExampleFiles: @[".env.example", ".env.sample", ".env.template",
         ".env.defaults"],
     ignoredEnvVars: @["NODE_ENV", "CI", "PATH", "HOME", "USER", "SHELL", "PWD",
@@ -112,7 +112,6 @@ proc parseStringArray(value: string; path: string; line: int;
   var quote: char = '\0'
   var index = 1
   var final = text.len - 1
-  var closed = false
   while index < final:
     let ch = text[index]
     if quote != '\0':

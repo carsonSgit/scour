@@ -72,9 +72,18 @@ proc scanHardcodedSecrets(result: var seq[Issue]; plan: ScanPlan) =
   for candidate in plan.candidates:
     let path = plan.repo.root / candidate
     if not fileExists(path):
+      if plan.stats != nil:
+        inc(plan.stats.missing)
       continue
     var lineNumber = 0
-    for line in readFile(path).splitLines():
+    var source = ""
+    try:
+      source = readFile(path)
+    except IOError, OSError:
+      if plan.stats != nil:
+        inc(plan.stats.unreadable)
+      continue
+    for line in source.splitLines():
       inc lineNumber
       let signature = line.credentialSignature()
       if signature.index >= 0:

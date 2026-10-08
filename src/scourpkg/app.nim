@@ -38,7 +38,8 @@ proc runScour*(): int =
       effectiveOptions.outputFormat = runtimeConfig.outputFormat
     if not effectiveOptions.failOnExplicit:
       effectiveOptions.failOn = runtimeConfig.failOn
-    let collected = collectCandidates(repoContext, mode, effectiveOptions, runtimeConfig)
+    let stats = new ScanStats
+    let collected = collectCandidates(repoContext, mode, effectiveOptions, runtimeConfig, stats)
     let plan = ScanPlan(
       mode: mode,
       repo: repoContext,
@@ -46,7 +47,8 @@ proc runScour*(): int =
       sinceRef: options.sinceRef,
       baseRef: collected.baseRef,
       candidates: collected.files,
-      selectedFiles: collected.selectedFiles
+      selectedFiles: collected.selectedFiles,
+      stats: stats
     )
 
     let foundIssues = scanBranchHygiene(plan, runtimeConfig) & scanRepoHygiene(
@@ -56,8 +58,9 @@ proc runScour*(): int =
       stdout.write(renderTriage(foundIssues))
     else:
       stdout.write(renderIssues(foundIssues, effectiveOptions, plan))
-    if not effectiveOptions.exitZero and foundIssues.hasFailingIssues(
-        effectiveOptions.failOn):
+    if not effectiveOptions.exitZero and (
+        foundIssues.hasFailingIssues(effectiveOptions.failOn) or
+        plan.stats.unreadable > 0 or plan.stats.missing > 0):
       1
     else:
       0

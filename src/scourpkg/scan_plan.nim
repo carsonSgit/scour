@@ -1,6 +1,14 @@
 import issues
 
 type
+  ScanStats* = ref object
+    binarySkipped*: int
+    oversizedSkipped*: int
+    unreadable*: int
+    missing*: int
+
+  ScanFileKind* = enum fileReadable, fileBinary, fileUnreadable
+
   OutputFormat* = enum
     formatText = "text",
     formatJson = "json",
@@ -53,6 +61,7 @@ type
     baseRef*: string
     candidates*: seq[string]
     selectedFiles*: seq[string]
+    stats*: ScanStats
 
 proc modeName*(mode: ScanMode): string =
   case mode
