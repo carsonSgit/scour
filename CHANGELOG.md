@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.5.0] - 2026-10-19
+
+### Features
+- Revamp landing page and add fumadocs docs
+
 ## [0.4.12] - 2026-10-08
 
 ### Other
