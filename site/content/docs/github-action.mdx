@@ -1,0 +1,58 @@
+---
+title: GitHub Action
+description: Enforce scour on pull requests with one pinned Action step, plus GitLab and Docker recipes.
+---
+
+## GitHub Action
+
+```yaml title=".github/workflows/ci.yml"
+- uses: carsonSgit/scour@v0.4.5
+  with:
+    version: v0.4.5
+    fail-on: warning
+    triage: "true"
+```
+
+<Callout type="warn">
+  Pin both the Action reference and the `version` input so repeated runs
+  resolve identical archives.
+</Callout>
+
+Inputs: `since`, `staged`, `all`, `format`, `fail-on`, `config`, `version`,
+`exit-zero`, `triage`, `fix` (`none`/`preview`/`apply`), and `patch-name`.
+
+Outputs include `total`, `errors`, `warnings`, `blockers`, `fix-now`,
+`json`, `patch-path`, `fixed`, and `remaining`.
+
+<Callout type="info">
+  The Action never touches Git refs — fixes ship as downloaded patch
+  artifacts. Read-only fork pipelines need no write token.
+</Callout>
+
+## GitLab CI
+
+```yaml title=".gitlab-ci.yml"
+scour:
+  image: curlimages/curl:8.5.0
+  stage: test
+  script:
+    - curl -fsSL "https://github.com/carsonSgit/scour/releases/download/v0.4.5/scour-v0.4.5-linux-x86_64.tar.gz" -o scour.tar.gz
+    - tar -xzf scour.tar.gz
+    - git fetch --unshallow || git fetch --depth=50 origin main || true
+    - ./scour --since "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --format codequality > codequality.json || true
+  artifacts:
+    when: always
+    reports:
+      codequality: codequality.json
+    paths:
+      - scour-fix.patch
+```
+
+## Any CI with Docker
+
+```bash
+docker run --rm -v "$PWD":/workspace:ro -w /workspace scour:v0.4.5 --all --format json > /host/scan.json
+```
+
+Mount the repository read-only; Scour runs as its dedicated user and writes
+reports to a writable directory.

@@ -1,0 +1,36 @@
+---
+title: What is scour
+description: Fast pre-merge checks for repo hygiene, config drift, and PR mistakes.
+---
+
+## What is scour
+
+Scour reads your diff like a reviewer. One pass flags leftover debug code,
+skipped tests, tracked `.env` files, lockfile drift, leaked secrets, and more —
+17 configurable rules, one static binary, zero config required.
+
+## Install
+
+```bash title="Linux / macOS"
+curl -fsSL https://raw.githubusercontent.com/carsonSgit/scour/main/scripts/install.sh | sh
+```
+
+Windows users can download the ZIP archive from
+[GitHub Releases](https://github.com/carsonSgit/scour/releases) and place
+`scour.exe` on `PATH`. Pin a release or change the destination with
+`SCOUR_VERSION` and `SCOUR_INSTALL_DIR`.
+
+## First scan
+
+```bash title="~/my-project"
+scour --all
+```
+
+<Callout type="info">
+  Run `scour --help` for every flag. Exit codes are stable: findings at or above
+  your threshold exit `1`, malformed arguments exit `2`.
+</Callout>
+
+Next: [scan modes](/docs/selectors) · [triage and fixes](/docs/triage-and-fixes) ·
+[configuration](/docs/configuration) · in CI, prefer the
+[GitHub Action](/docs/github-action) over raw installs.
